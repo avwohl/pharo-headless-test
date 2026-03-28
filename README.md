@@ -135,6 +135,13 @@ runs automatically on image resume.
     /tmp/sunit_run_number.txt     Auto-incrementing run counter
     /tmp/sunit_run_completed.txt  Marker to prevent re-run on image resume
 
+## Related
+
+- **[iospharo](https://github.com/avwohl/iospharo)** —
+  A Pharo Smalltalk VM for iOS and macOS (clean C++ interpreter, Metal
+  rendering, touch input). This test harness was originally developed as
+  part of iospharo and extracted into its own repo.
+
 ## License
 
 MIT. See LICENSE file.
