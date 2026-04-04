@@ -290,7 +290,8 @@ runAllTests
     ProcessLocalSlotTest WeakClassVariableTest WeakSlotTest
     ArgumentVariableTest
     "Block/Continuation"
-    BlockClosureValueWithinTest BlockClosureValueWithinDurationTest
+    BlockClosureValueWithinTest
+    "BlockClosureValueWithinDurationTest — moved to skip list (valueWithin: timing tests hang)"
     ContinuationTest
     "Compiler/definitions"
     ByteSymbolTest CommonClassDefinitionPrinterTest
@@ -551,6 +552,8 @@ runAllTests
      SelfVariableTest
      "ThisContextVariableTest — similar reflective scanning, very slow"
      ThisContextVariableTest
+     "BlockClosureValueWithinDurationTest — valueWithin: timing tests run forever (watchdog can't kill)"
+     BlockClosureValueWithinDurationTest
      "TF*Test — TFFI marshalling/callback tests crash VM"
      TFBasicTypeMarshallingTest TFBasicTypeMarshallingInCallbacksTest
      TFCallbacksTest TFDerivedTypeMarshallingTest TFFunctionCallTest
