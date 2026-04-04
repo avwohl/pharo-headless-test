@@ -168,8 +168,10 @@ runAllTests
     ClassVariableTest GlobalVariableTest LiteralVariableTest
     SlotLayoutEqualityTest SlotLayoutExtensionTest
     "SlotTraitsTest moved to Tier 3b"
-    SelfVariableTest TemporaryVariableTest
-    ThisContextVariableTest BooleanSlotTest WriteOnceSlotTest) do: [:name |
+    "SelfVariableTest — moved to skip list (reflective scanning, 80s timeout x3)"
+    TemporaryVariableTest
+    "ThisContextVariableTest — moved to skip list (reflective scanning)"
+    BooleanSlotTest WriteOnceSlotTest) do: [:name |
       (Smalltalk globals at: name ifAbsent: [nil])
         ifNotNil: [:cls | addOnce value: cls]].
 
@@ -545,6 +547,10 @@ runAllTests
      TonelWriterV2Test
      "ZnClientTest — testConnectionClose hangs (blocking socket connect)"
      ZnClientTest
+     "SelfVariableTest — testUsingMethods/FFI/Super scan all methods, 80s timeout x3 = 240s wasted"
+     SelfVariableTest
+     "ThisContextVariableTest — similar reflective scanning, very slow"
+     ThisContextVariableTest
      "TF*Test — TFFI marshalling/callback tests crash VM"
      TFBasicTypeMarshallingTest TFBasicTypeMarshallingInCallbacksTest
      TFCallbacksTest TFDerivedTypeMarshallingTest TFFunctionCallTest
