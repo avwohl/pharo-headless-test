@@ -40,6 +40,19 @@ runDiagnostic: stream
    stream flush]
   on: Error do: [:e |
    stream nextPutAll: 'DIAG ERROR: '; nextPutAll: e class name; nextPutAll: ' - '; nextPutAll: e messageText; lf. stream flush].
+  "Check Unicode generalCategory table integrity"
+  [| table base |
+   table := Unicode generalCategory.
+   base := table instVarAt: 1.
+   stream nextPutAll: 'DIAG: Unicode genCat base class='; nextPutAll: base class name;
+     nextPutAll: ' isLetter:$t='; nextPutAll: ($t isLetter) printString; lf.
+   base isArray ifTrue: [
+     stream nextPutAll: 'DIAG: base size='; nextPutAll: base size printString; lf]
+   ifFalse: [
+     stream nextPutAll: 'DIAG: BASE CORRUPTED! val='; nextPutAll: base printString; lf].
+   stream flush]
+  on: Error do: [:e |
+   stream nextPutAll: 'DIAG: Unicode check error: '; nextPutAll: e messageText; lf. stream flush].
   stream nextPutAll: '=== END DIAGNOSTICS ==='; lf; lf. stream flush! !
 
 !SUnitRunner class methodsFor: 'running'!
@@ -770,19 +783,27 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
       s nextPutAll: '  DIAG-EMPTY: methodDict size='; print: md size; lf.
       testKeys := md keys select: [:k | k isString and: [k size > 3 and: [(k copyFrom: 1 to: 4) = 'test']]].
       s nextPutAll: '  DIAG-EMPTY: test* in methodDict='; print: testKeys size; lf].
-    "Dump all instance vars of the SparseLargeTable"
-    [| table v |
-     table := Unicode generalCategory.
-     s nextPutAll: '  DIAG: table class='; print: table class name; lf.
-     s nextPutAll: '  DIAG: instSize='; print: table class instSize; lf.
-     1 to: (table class instSize min: 6) do: [:i |
-       v := table instVarAt: i.
-       s nextPutAll: '  DIAG: iv'; print: i; nextPutAll: '='; print: v class name.
-       v isInteger ifTrue: [s nextPutAll: ' val='; print: v].
-       (v isKindOf: Collection) ifTrue: [s nextPutAll: ' size='; print: v size].
-       s lf].
-     s nextPutAll: '  DIAG: table at:116='; print: (table at: 116); lf.
-     s nextPutAll: '  DIAG: table at:65(A)='; print: (table at: 65); lf]
+    "Deep trace of isLetter chain"
+    [| cs csClass result |
+     "Step 1: what does characterSet return?"
+     cs := $t characterSet.
+     csClass := cs class.
+     s nextPutAll: '  DIAG: characterSet='; print: cs name; nextPutAll: ' class='; print: csClass name; lf.
+     "Step 2: call isLetter: directly on the charset"
+     result := cs isLetter: $t.
+     s nextPutAll: '  DIAG: cs isLetter: $t='; print: result; lf.
+     "Step 3: inline the between check"
+     s nextPutAll: '  DIAG: $t between:$a and:$z='; print: ($t between: $a and: $z); lf.
+     "Step 4: check if isLetter: method source matches expectation"
+     s nextPutAll: '  DIAG: isLetter: source='; nextPutAll: (cs class >> #isLetter:) sourceCode; lf.
+     "Step 5: check what isLetter on Character does (its whole chain)"
+     s nextPutAll: '  DIAG: Character>>isLetter source='; nextPutAll: (Character >> #isLetter) sourceCode; lf.
+     "Step 6: check the class of the actual receiver going through the chain"
+     s nextPutAll: '  DIAG: $t class='; print: $t class name; lf.
+     s nextPutAll: '  DIAG: $t class characterSet='; print: $t class characterSet name; lf.
+     "Step 7: check CharSet class variable directly"
+     s nextPutAll: '  DIAG: CharSet='; print: (Character classPool at: #CharSet ifAbsent: ['MISSING']); lf.
+     s nextPutAll: '  DIAG: AsciiCharset='; print: (Character classPool at: #AsciiCharset ifAbsent: ['MISSING']); lf]
       on: Error do: [:ex | s nextPutAll: '  DIAG error: '; print: ex class name; nextPutAll: ' '; nextPutAll: (ex messageText ifNil: ['?']); lf].
     s flush].
   "Sort with comparison counter to detect infinite loops"
