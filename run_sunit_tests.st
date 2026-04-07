@@ -755,6 +755,36 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
   testPriority := 40.
   p := 0. f := 0. e := 0. sk := 0. t := 0. consecutiveTimeouts := 0.
   sels := testClass allTestSelectors asArray.
+  "DIAGNOSTIC: if sels is empty, log what we can discover"
+  sels isEmpty ifTrue: [
+    | allSels md testSels testKeys |
+    s nextPutAll: '  DIAG-EMPTY: allTestSelectors=0 for '; nextPutAll: testClass name; lf.
+    allSels := [testClass allSelectors asArray] on: Error do: [:ex | #()].
+    s nextPutAll: '  DIAG-EMPTY: allSelectors size='; print: allSels size; lf.
+    testSels := allSels select: [:sel | sel isString and: [sel size > 3 and: [(sel copyFrom: 1 to: 4) = 'test']]].
+    s nextPutAll: '  DIAG-EMPTY: test* in allSelectors='; print: testSels size; lf.
+    testSels size > 0 ifTrue: [
+      s nextPutAll: '  DIAG-EMPTY: first5='; print: (testSels first: (5 min: testSels size)); lf].
+    md := [testClass methodDict] on: Error do: [:ex | nil].
+    md ifNotNil: [
+      s nextPutAll: '  DIAG-EMPTY: methodDict size='; print: md size; lf.
+      testKeys := md keys select: [:k | k isString and: [k size > 3 and: [(k copyFrom: 1 to: 4) = 'test']]].
+      s nextPutAll: '  DIAG-EMPTY: test* in methodDict='; print: testKeys size; lf].
+    "Dump all instance vars of the SparseLargeTable"
+    [| table v |
+     table := Unicode generalCategory.
+     s nextPutAll: '  DIAG: table class='; print: table class name; lf.
+     s nextPutAll: '  DIAG: instSize='; print: table class instSize; lf.
+     1 to: (table class instSize min: 6) do: [:i |
+       v := table instVarAt: i.
+       s nextPutAll: '  DIAG: iv'; print: i; nextPutAll: '='; print: v class name.
+       v isInteger ifTrue: [s nextPutAll: ' val='; print: v].
+       (v isKindOf: Collection) ifTrue: [s nextPutAll: ' size='; print: v size].
+       s lf].
+     s nextPutAll: '  DIAG: table at:116='; print: (table at: 116); lf.
+     s nextPutAll: '  DIAG: table at:65(A)='; print: (table at: 65); lf]
+      on: Error do: [:ex | s nextPutAll: '  DIAG error: '; print: ex class name; nextPutAll: ' '; nextPutAll: (ex messageText ifNil: ['?']); lf].
+    s flush].
   "Sort with comparison counter to detect infinite loops"
   [| count |
    count := 0.
