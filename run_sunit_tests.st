@@ -635,10 +635,15 @@ runAllTests
      wait. Swap in a wrapper that logs the killer to /tmp/sched_killer.txt
      before re-raising. Also install a watcher that captures the dying
      process's state (in case the exception is caught elsewhere)."
-    [| cls origMethod |
-     cls := Delay scheduler class.
+    [| cls origMethod walk |
+     "Walk up to the class that actually defines #runBackendLoopAtTimingPriority
+      (DelayBasicScheduler on Pharo 13, not the concrete DelaySemaphoreScheduler)."
+     walk := Delay scheduler class.
+     [walk isNil or: [walk methodDict includesKey: #runBackendLoopAtTimingPriority]]
+       whileFalse: [walk := walk superclass].
+     cls := walk.
      "Only install once; subsequent batches keep the first install."
-     (cls includesSelector: #runBackendLoopAtTimingPriorityOriginal) ifFalse: [
+     (cls isNil or: [cls includesSelector: #runBackendLoopAtTimingPriorityOriginal]) ifFalse: [
        origMethod := cls methodDict at: #runBackendLoopAtTimingPriority ifAbsent: [nil].
        origMethod ifNotNil: [
          cls methodDict at: #runBackendLoopAtTimingPriorityOriginal put: origMethod.
