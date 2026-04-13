@@ -49,7 +49,7 @@ runDiagnostic: stream
    base isArray ifTrue: [
      stream nextPutAll: 'DIAG: base size='; nextPutAll: base size printString; lf]
    ifFalse: [
-     stream nextPutAll: 'DIAG: BASE CORRUPTED! val='; nextPutAll: base printString; lf].
+     stream nextPutAll: 'DIAG: BASE CORRUPTED!! val='; nextPutAll: base printString; lf].
    stream flush]
   on: Error do: [:e |
    stream nextPutAll: 'DIAG: Unicode check error: '; nextPutAll: e messageText; lf. stream flush].
@@ -629,6 +629,41 @@ runAllTests
       nextPutAll: ' of '; print: testClasses size;
       nextPutAll: ') ==='; lf; lf.
     self runDiagnostic: stream.
+    "Install scheduler-death exception logger. DelaySemaphoreScheduler's
+     runBackendLoopAtTimingPriority falls through its ensure: on unhandled
+     exception, which silently kills the scheduler and hangs every Delay
+     wait. Swap in a wrapper that logs the killer to /tmp/sched_killer.txt
+     before re-raising. Also install a watcher that captures the dying
+     process's state (in case the exception is caught elsewhere)."
+    [| cls origMethod |
+     cls := Delay scheduler class.
+     "Only install once; subsequent batches keep the first install."
+     (cls includesSelector: #runBackendLoopAtTimingPriorityOriginal) ifFalse: [
+       origMethod := cls methodDict at: #runBackendLoopAtTimingPriority ifAbsent: [nil].
+       origMethod ifNotNil: [
+         cls methodDict at: #runBackendLoopAtTimingPriorityOriginal put: origMethod.
+         cls compile: 'runBackendLoopAtTimingPriority
+  "Instrumented by SUnitRunner to capture scheduler-killing exceptions."
+  [self runBackendLoopAtTimingPriorityOriginal]
+    on: Exception do: [:ex |
+      [''/tmp/sched_killer.txt'' asFileReference appendStreamDo: [:o |
+        o nextPutAll: ''=== Scheduler killed at ''; print: DateAndTime now; nextPutAll: '' ===''; lf.
+        o nextPutAll: ''class: ''; nextPutAll: ex class name; lf.
+        o nextPutAll: ''msg: ''; nextPutAll: (ex messageText ifNil: [''?'']); lf.
+        [| c n | c := ex signalerContext. n := 0.
+         [c isNil or: [n > 25]] whileFalse: [
+           o tab; print: c; lf. c := c sender. n := n + 1]]
+          on: Error do: [:e2 | o nextPutAll: ''(stack err: ''; nextPutAll: e2 class name; nextPutAll: '')''; lf].
+        o lf]]
+        on: Error do: [:e3 | "filesystem problem - swallow"].
+      ex pass]' classified: 'private - instrumented'.
+         stream nextPutAll: 'SCHED-LOGGER-INSTALLED'; lf. stream flush.
+         "Restart scheduler so the new method takes effect."
+         Delay scheduler restartTimerEventLoop.
+         Processor yield]]]
+    on: Error do: [:e |
+     stream nextPutAll: 'SCHED-LOGGER-ERR: '; nextPutAll: e class name;
+       nextPutAll: ' '; nextPutAll: (e messageText ifNil: ['?']); lf. stream flush].
     "Check symbol table for Symbol class corruption"
     [| symCls count |
      symCls := Symbol.
@@ -758,7 +793,15 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
      alive ifFalse: [ProcessorScheduler relinquishProcessorForMicroseconds: 50000 "50ms"]].
    alive ifFalse: [sem isSignaled ifTrue: [alive := true]].
    alive ifFalse: [
-     s nextPutAll: '  DELAY-DEAD: '; nextPutAll: testClass name; lf. s flush]]
+     s nextPutAll: '  DELAY-DEAD: '; nextPutAll: testClass name; lf. s flush.
+     "Scheduler process died (unhandled exception in runBackendLoopAtTimingPriority).
+      Restart it so remaining classes have a working Delay. Without this the
+      Delay-based watchdog deadlocks every subsequent test."
+     [Delay scheduler restartTimerEventLoop.
+      s nextPutAll: '  DELAY-RESTARTED: '; nextPutAll: testClass name; lf. s flush]
+       on: Error do: [:rex |
+         s nextPutAll: '  DELAY-RESTART-FAILED: '; nextPutAll: rex class name;
+           nextPutAll: ' '; nextPutAll: (rex messageText ifNil: ['?']); lf. s flush]]]
   on: Error do: [:e |].
   "Tests must run below timingPriority (80). Watchdog uses Delay>>wait at P60.
    Use priority 40 (userSchedulingPriority) matching standard Pharo behavior.
@@ -930,7 +973,13 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
           s nextPutAll: ' isTerminated='; nextPutAll: proc isTerminated printString;
             nextPutAll: ' isSuspended='; nextPutAll: proc isSuspended printString].
       s cr. s flush] on: Error do: [:e |
-        s nextPutAll: '  DELAY-DIAG-ERROR: '; nextPutAll: e printString; lf. s flush]]]
+        s nextPutAll: '  DELAY-DIAG-ERROR: '; nextPutAll: e printString; lf. s flush].
+     "Restart the scheduler so next class has a working Delay."
+     [Delay scheduler restartTimerEventLoop.
+      s nextPutAll: '  DELAY-RESTARTED-AFTER: '; nextPutAll: testClass name; lf. s flush]
+       on: Error do: [:rex |
+         s nextPutAll: '  DELAY-RESTART-FAILED: '; nextPutAll: rex class name;
+           nextPutAll: ' '; nextPutAll: (rex messageText ifNil: ['?']); lf. s flush]]]
   on: Error do: [:e |].
   s nextPutAll: 'Total: '; print: sels size;
     nextPutAll: ' P:'; print: p;
@@ -988,19 +1037,18 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
      error during unwinding that escapes the on: Error handler."
     ensure: [testDone := true. doneSem signal]] forkAt: priority.
 
-  "Watchdog: Delay-based at userBackgroundPriority.
-   Uses Delay>>wait (cooperative, lets lower-priority processes run) instead of
-   spin-wait with relinquishProcessorForMicroseconds: 0 (which starves P40 tests
-   on JIT VMs where the high-priority spin loop never yields to lower priorities).
-   Falls back to a tighter poll if Delay scheduler dies (interpreter VMs)."
+  "Watchdog: relinquish-based at userBackgroundPriority (60).
+   Previously used Delay>>wait, but when the scheduler process dies,
+   Delay>>wait blocks on a semaphore that will never be signaled — no
+   error is raised, the fallback `on: Error do:` never fires, and the
+   watchdog hangs forever. relinquishProcessorForMicroseconds: is a
+   primitive that always wakes after the timeout, independent of Delay.
+   At P60 this preempts P40 test processes each wake-up."
   watchdog := [
     | deadline |
     deadline := DateAndTime now + (Duration seconds: seconds).
     [testDone not and: [DateAndTime now < deadline]] whileTrue: [
-      [(Delay forMilliseconds: 500) wait]
-        on: Error do: [:e |
-          "Delay scheduler dead — fall back to short yield"
-          ProcessorScheduler relinquishProcessorForMicroseconds: 100000 "100ms"]].
+      ProcessorScheduler relinquishProcessorForMicroseconds: 100000 "100ms"].
     testDone ifFalse: [
       result := #timeout.
       testDone := true.
@@ -1011,13 +1059,16 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
       [testProcess terminate] on: Error do: [:e |]]] forkAt: 60.
   backupWatchdog := nil.
 
-  "Wait for test completion. Use waitTimeoutSeconds: as safety net — if both test
-   and watchdog are stuck in a blocking C++ primitive, doneSem wait would block
-   forever. The Delay-based timeout (2x watchdog) catches this case."
-  [| timedOut |
-   timedOut := doneSem waitTimeoutSeconds: (seconds * 2).
-   timedOut ifTrue: [
-     "Both test AND watchdog stuck (e.g., blocking C++ primitive)"
+  "Wait for test completion. Poll testDone using relinquishProcessorForMicroseconds:
+   instead of doneSem waitTimeoutSeconds: — the latter depends on Delay, which
+   blocks forever (without error) when the scheduler process has terminated.
+   Deadline is 2x watchdog timeout as a hard safety net."
+  [| deadline |
+   deadline := DateAndTime now + (Duration seconds: seconds * 2).
+   [testDone not and: [DateAndTime now < deadline]] whileTrue: [
+     ProcessorScheduler relinquishProcessorForMicroseconds: 50000 "50ms"].
+   testDone ifFalse: [
+     "Both test AND watchdog stuck (e.g., blocking C++ primitive, or scheduler dead)"
      result ifNil: [result := #timeout].
      testDone := true.
      s nextPutAll: '  TIMEOUT(prim-stuck): '; nextPutAll: sel; lf. s flush.
