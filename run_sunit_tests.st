@@ -966,7 +966,12 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs deadli
        testPrintingRecursive
        "SlotIntegrationTest>>testSlotScopeParallelism — leaves AnObsoleteSlotTestsClassA
         that poisons package iteration (isManifest DNU) for all subsequent tests"
-       testSlotScopeParallelism)
+       testSlotScopeParallelism
+       "BlockClosureTest>>testBenchFor — benchFor: assumes JIT-level
+        iteration rate (needs 10+ iterations of [100 factorial] in 500ms).
+        On a pure interpreter 100x slower than Cog this is a speed test,
+        not a correctness test."
+       testBenchFor)
       includes: sel) ifFalse: [
       | result isExpectedFailure |
       "Check for <expectedFailure> pragma — these are known to fail in all VMs"
