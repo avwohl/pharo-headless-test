@@ -669,6 +669,9 @@ runAllTests
       nextPutAll: ' names-file exists='; print: ('/tmp/sunit_class_names.txt' asFileReference exists); lf.
     stream nextPutAll: 'BATCH-DEADLINE: '; print: batchDeadline;
       nextPutAll: ' (maxBatchSeconds='; print: maxBatchSeconds; nextPutAll: ')'; lf.
+    stream nextPutAll: 'MAX-PER-TEST: ';
+      print: (Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [180]);
+      nextPutAll: 's'; lf.
     stream flush.
     self runDiagnostic: stream.
     "Install scheduler-death exception logger. DelaySemaphoreScheduler's
@@ -1075,11 +1078,21 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    Fork the test at the requested priority. The test signals doneSem when done,
    waking the runner immediately. Watchdog uses Delay>>wait (cooperative) so it
    doesn't starve lower-priority test processes. Falls back to relinquish: if
-   Delay scheduler dies (interpreter VMs without JIT)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone |
+   Delay scheduler dies (interpreter VMs without JIT).
+
+   Absolute per-test cap (seconds). Independent of timeoutScale so cranking
+   the scale knob can never produce a test that runs longer than this. The
+   runner's hard wait is min(seconds * 2, maxPerTest). Override with
+   Smalltalk globals at: #SUnitMaxPerTestSeconds (default 180s)."
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
+  maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [180].
+  "Soft watchdog runs at min(seconds, maxPerTest); the outer hard wait
+   cannot exceed maxPerTest either."
+  effectiveWatchdog := seconds min: maxPerTest.
+  hardWait := (seconds * 2) min: maxPerTest.
 
   "Fork test at requested priority"
   testProcess := [
@@ -1125,14 +1138,14 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    At P60 this preempts P40 test processes each wake-up."
   watchdog := [
     | deadline |
-    deadline := DateAndTime now + (Duration seconds: seconds).
+    deadline := DateAndTime now + (Duration seconds: effectiveWatchdog).
     [testDone not and: [DateAndTime now < deadline]] whileTrue: [
       ProcessorScheduler relinquishProcessorForMicroseconds: 100000 "100ms"].
     testDone ifFalse: [
       result := #timeout.
       testDone := true.
       s nextPutAll: '  TIMEOUT: '; nextPutAll: sel;
-        nextPutAll: ' (exceeded '; print: seconds; nextPutAll: 's)'; lf.
+        nextPutAll: ' (exceeded '; print: effectiveWatchdog; nextPutAll: 's)'; lf.
       s flush.
       doneSem signal.
       "Force-kill: suspend is a primitive (cannot block), terminate runs
@@ -1148,7 +1161,7 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    blocks forever (without error) when the scheduler process has terminated.
    Deadline is 2x watchdog timeout as a hard safety net."
   [| deadline |
-   deadline := DateAndTime now + (Duration seconds: seconds * 2).
+   deadline := DateAndTime now + (Duration seconds: hardWait).
    [testDone not and: [DateAndTime now < deadline]] whileTrue: [
      ProcessorScheduler relinquishProcessorForMicroseconds: 50000 "50ms"].
    testDone ifFalse: [
