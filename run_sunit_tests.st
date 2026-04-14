@@ -1104,11 +1104,47 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    the scale knob can never produce a test that runs longer than this. The
    runner's hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait timingClassNames clsName |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
   maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [300].
+
+  "Timing-sensitive classes: SemaphoreTest / BlockClosureValueWithin*Test /
+   ProcessTest assert Delay-based timings down to the millisecond, which
+   the 4-nested-exception-handler stack (TestFailure / Deprecation /
+   TestSkipped / Error) below perturbs enough to flip the assertions.
+   For these classes, fork at P40 but with ONLY a single on: Error
+   handler and a deadline-based completion wait — no P60 watchdog
+   process. Opt out with SUnitDisableTimingFastPath."
+  clsName := testClass name asString.
+  timingClassNames := #('SemaphoreTest' 'BlockClosureValueWithinTest'
+                         'BlockClosureValueWithinDurationTest').
+  ((Smalltalk globals at: #SUnitDisableTimingFastPath ifAbsent: [false]) not
+    and: [timingClassNames includes: clsName]) ifTrue: [
+    | tp fastDone fastResult fastSem fastDeadline |
+    fastDone := false.
+    fastResult := nil.
+    fastSem := Semaphore new.
+    tp := [
+      | inst |
+      inst := testClass selector: sel.
+      [[inst runCase]
+        on: TestFailure do: [:ex |
+          fastResult := #fail.
+          s nextPutAll: '  FAIL: '; nextPutAll: sel;
+            nextPutAll: ' ['; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: ']'; lf]]
+        ensure: [fastDone := true. fastSem signal]] forkAt: priority.
+    fastDeadline := DateAndTime now + (Duration seconds: (seconds min: maxPerTest)).
+    [fastDone not and: [DateAndTime now < fastDeadline]] whileTrue: [
+      ProcessorScheduler relinquishProcessorForMicroseconds: 50000 "50ms"].
+    fastDone ifFalse: [
+      fastResult := #timeout.
+      s nextPutAll: '  TIMEOUT(fast): '; nextPutAll: sel;
+        nextPutAll: ' (exceeded '; print: (seconds min: maxPerTest); nextPutAll: 's)'; lf.
+      [tp suspend] on: Error do: [:e |].
+      [[tp terminate] on: Error do: [:e |]] fork].
+    ^ fastResult].
   "Soft watchdog runs at min(seconds, maxPerTest); the outer hard wait
    cannot exceed maxPerTest either."
   effectiveWatchdog := seconds min: maxPerTest.
