@@ -40,19 +40,15 @@ runDiagnostic: stream
    stream flush]
   on: Error do: [:e |
    stream nextPutAll: 'DIAG ERROR: '; nextPutAll: e class name; nextPutAll: ' - '; nextPutAll: e messageText; lf. stream flush].
-  "Check Unicode generalCategory table integrity"
-  [| table base |
-   table := Unicode generalCategory.
-   base := table instVarAt: 1.
-   stream nextPutAll: 'DIAG: Unicode genCat base class='; nextPutAll: base class name;
-     nextPutAll: ' isLetter:$t='; nextPutAll: ($t isLetter) printString; lf.
-   base isArray ifTrue: [
-     stream nextPutAll: 'DIAG: base size='; nextPutAll: base size printString; lf]
-   ifFalse: [
-     stream nextPutAll: 'DIAG: BASE CORRUPTED!! val='; nextPutAll: base printString; lf].
-   stream flush]
+  "Functional check: Unicode lookup works end-to-end. Previous diagnostic
+   peeked at instVarAt: 1 and flagged SmallInteger as corruption, but in
+   Pharo 13 that slot is not an Array — so the diag was a false positive.
+   Only thing that matters for test runs is that character classification
+   actually works."
+  [stream nextPutAll: 'DIAG: Unicode isLetter:$t='; nextPutAll: ($t isLetter) printString;
+     nextPutAll: ' isDigit:$5='; nextPutAll: ($5 isDigit) printString; lf. stream flush]
   on: Error do: [:e |
-   stream nextPutAll: 'DIAG: Unicode check error: '; nextPutAll: e messageText; lf. stream flush].
+   stream nextPutAll: 'DIAG: Unicode check ERROR: '; nextPutAll: e messageText; lf. stream flush].
   stream nextPutAll: '=== END DIAGNOSTICS ==='; lf; lf. stream flush! !
 
 !SUnitRunner class methodsFor: 'running'!
