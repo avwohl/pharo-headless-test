@@ -593,18 +593,24 @@ runAllTests
    FileReference>>exists, which hits a ByteString>>#link DNU in some images."
   batchStart := Smalltalk globals at: #SUnitBatchStart ifAbsent: [1].
   batchEnd := Smalltalk globals at: #SUnitBatchEnd ifAbsent: [testClasses size].
-  "Smalltalk globals SUnitClassNames = Array of class-name symbols
-   selects exactly those classes (intersected with testClasses)."
+  "Smalltalk globals SUnitClassNames = Array of class-name symbols.
+   Resolves via Smalltalk globals directly — does NOT require pre-registration
+   in testClasses. This lets callers exercise arbitrary test classes (Epicea,
+   Debugger, Fuel, Cly*, etc.) without rebuilding the static registry."
   (Smalltalk globals at: #SUnitClassNames ifAbsent: [nil]) ifNotNil: [:nameArr |
-    | filtered |
+    | filtered missing |
     filtered := OrderedCollection new.
+    missing := OrderedCollection new.
     nameArr do: [:n |
-      testClasses detect: [:c | c name = n asString]
-        ifFound: [:c | filtered add: c]
-        ifNone: []].
+      (Smalltalk globals at: n asSymbol ifAbsent: [nil])
+        ifNil: [missing add: n asString]
+        ifNotNil: [:cls | filtered add: cls]].
     batchClasses := filtered.
     batchStart := 1.
-    batchEnd := filtered size].
+    batchEnd := filtered size.
+    missing isEmpty ifFalse: [
+      '/tmp/sunit_unknown_classes.txt' asFileReference writeStreamDo: [:o |
+        missing do: [:n | o nextPutAll: n; lf]]]].
   [| classNamesFile |
    classNamesFile := '/tmp/sunit_class_names.txt' asFileReference.
    classNamesFile exists ifTrue: [
