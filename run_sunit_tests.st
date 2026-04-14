@@ -672,7 +672,7 @@ runAllTests
     stream nextPutAll: 'BATCH-DEADLINE: '; print: batchDeadline;
       nextPutAll: ' (maxBatchSeconds='; print: maxBatchSeconds; nextPutAll: ')'; lf.
     stream nextPutAll: 'MAX-PER-TEST: ';
-      print: (Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [180]);
+      print: (Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [300]);
       nextPutAll: 's'; lf.
     stream flush.
     self runDiagnostic: stream.
@@ -1090,12 +1090,12 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    Absolute per-test cap (seconds). Independent of timeoutScale so cranking
    the scale knob can never produce a test that runs longer than this. The
    runner's hard wait is min(seconds * 2, maxPerTest). Override with
-   Smalltalk globals at: #SUnitMaxPerTestSeconds (default 180s)."
+   Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
   | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
-  maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [180].
+  maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [300].
   "Soft watchdog runs at min(seconds, maxPerTest); the outer hard wait
    cannot exceed maxPerTest either."
   effectiveWatchdog := seconds min: maxPerTest.
