@@ -627,10 +627,17 @@ runAllTests
         parts := batchFile contents trimBoth substrings.
         batchStart := parts first asInteger.
         batchEnd := (parts second asInteger min: testClasses size)]]
-     on: Error do: [:e |
+     on: Error do: [:e | | cur count |
        '/tmp/sunit_batch_err.txt' asFileReference writeStreamDo: [:o |
          o nextPutAll: 'batch parse err: '; nextPutAll: e class name; lf.
-         o nextPutAll: 'msg: '; nextPutAll: (e messageText ifNil: ['?']); lf]]]]
+         o nextPutAll: 'msg: '; nextPutAll: (e messageText ifNil: ['?']); lf.
+         o nextPutAll: 'stack:'; lf.
+         cur := e signalerContext.
+         count := 0.
+         [cur notNil and: [count < 40]] whileTrue: [
+           o nextPutAll: '  '; nextPutAll: cur printString; lf.
+           cur := cur sender.
+           count := count + 1]]]]]
   on: Error do: [:e |
     '/tmp/sunit_batch_outer_err.txt' asFileReference writeStreamDo: [:o |
       o nextPutAll: 'outer err: '; nextPutAll: e class name; lf.
