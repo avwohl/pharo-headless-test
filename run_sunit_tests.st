@@ -610,16 +610,22 @@ runAllTests
   [| classNamesFile |
    classNamesFile := '/tmp/sunit_class_names.txt' asFileReference.
    classNamesFile exists ifTrue: [
-     | names selected |
+     | names selected missing |
      names := classNamesFile contents lines
        collect: [:l | l trimBoth]
        thenSelect: [:l | l notEmpty].
      selected := OrderedCollection new.
+     missing := OrderedCollection new.
      names do: [:name |
-       testClasses detect: [:c | c name = name] ifFound: [:c | selected add: c]].
+       (Smalltalk globals at: name asSymbol ifAbsent: [nil])
+         ifNil: [missing add: name]
+         ifNotNil: [:cls | selected add: cls]].
      batchClasses := selected.
      batchStart := 1.
-     batchEnd := selected size]
+     batchEnd := selected size.
+     missing isEmpty ifFalse: [
+       '/tmp/sunit_unknown_classes.txt' asFileReference writeStreamDo: [:o |
+         missing do: [:n | o nextPutAll: n; lf]]]]
    ifFalse: [
      [| batchFile parts |
       batchFile := '/tmp/sunit_batch.txt' asFileReference.
