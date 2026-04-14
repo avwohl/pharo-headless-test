@@ -58,7 +58,7 @@ runDiagnostic: stream
 !SUnitRunner class methodsFor: 'running'!
 runAllTests
   "Run all tests and write results to /tmp/sunit_test_results.txt and /tmp/sunit_test_detail.txt"
-  | testClasses stream detail runNum totalP totalF totalE totalS totalT seen addOnce batchStart batchEnd batchClasses timeoutScale watchdogTimeout |
+  | testClasses stream detail runNum totalP totalF totalE totalS totalT seen addOnce batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
   runNum := self nextRunNumber.
 
   testClasses := OrderedCollection new.
@@ -587,9 +587,24 @@ runAllTests
 
   "Read batch range from /tmp/sunit_batch.txt (format: 'startIndex endIndex')
    OR class names from /tmp/sunit_class_names.txt (one class name per line).
-   If class names file exists, it takes priority. If neither, run all classes."
-  batchStart := 1.
-  batchEnd := testClasses size.
+   If class names file exists, it takes priority. If neither, run all classes.
+   Also honor Smalltalk globals SUnitBatchStart/SUnitBatchEnd as an escape
+   hatch (set them before calling runAllTests). The /tmp files rely on
+   FileReference>>exists, which hits a ByteString>>#link DNU in some images."
+  batchStart := Smalltalk globals at: #SUnitBatchStart ifAbsent: [1].
+  batchEnd := Smalltalk globals at: #SUnitBatchEnd ifAbsent: [testClasses size].
+  "Smalltalk globals SUnitClassNames = Array of class-name symbols
+   selects exactly those classes (intersected with testClasses)."
+  (Smalltalk globals at: #SUnitClassNames ifAbsent: [nil]) ifNotNil: [:nameArr |
+    | filtered |
+    filtered := OrderedCollection new.
+    nameArr do: [:n |
+      testClasses detect: [:c | c name = n asString]
+        ifFound: [:c | filtered add: c]
+        ifNone: []].
+    batchClasses := filtered.
+    batchStart := 1.
+    batchEnd := filtered size].
   [| classNamesFile |
    classNamesFile := '/tmp/sunit_class_names.txt' asFileReference.
    classNamesFile exists ifTrue: [
@@ -609,10 +624,25 @@ runAllTests
       batchFile exists ifTrue: [
         parts := batchFile contents trimBoth substrings.
         batchStart := parts first asInteger.
-        batchEnd := parts second asInteger min: testClasses size]]
-     on: Error do: [:e | ]]]
-  on: Error do: [:e | ].
+        batchEnd := (parts second asInteger min: testClasses size)]]
+     on: Error do: [:e |
+       '/tmp/sunit_batch_err.txt' asFileReference writeStreamDo: [:o |
+         o nextPutAll: 'batch parse err: '; nextPutAll: e class name; lf.
+         o nextPutAll: 'msg: '; nextPutAll: (e messageText ifNil: ['?']); lf]]]]
+  on: Error do: [:e |
+    '/tmp/sunit_batch_outer_err.txt' asFileReference writeStreamDo: [:o |
+      o nextPutAll: 'outer err: '; nextPutAll: e class name; lf.
+      o nextPutAll: 'msg: '; nextPutAll: (e messageText ifNil: ['?']); lf]].
   batchClasses ifNil: [batchClasses := testClasses copyFrom: batchStart to: batchEnd].
+
+  "Hard wallclock deadline for the entire batch. If any combination of tests
+   manages to outrun the per-test watchdogs (stuck terminate, blocking C
+   primitive, scheduler death, etc.), the class loop will short-circuit once
+   this deadline passes so the runner cannot hang forever. Override with
+   Smalltalk globals at: #SUnitMaxBatchSeconds (default 7200 = 2h)."
+  maxBatchSeconds := Smalltalk globals at: #SUnitMaxBatchSeconds ifAbsent: [7200].
+  batchDeadline := DateAndTime now + (Duration seconds: maxBatchSeconds).
+  batchAborted := false.
 
   "Open output files — both overwritten per batch.
    Shell script concatenates detail files across batches."
@@ -628,6 +658,18 @@ runAllTests
       nextPutAll: '-'; print: batchEnd;
       nextPutAll: ' of '; print: testClasses size;
       nextPutAll: ') ==='; lf; lf.
+    stream nextPutAll: 'BATCH-DEBUG: batchClasses size='; print: batchClasses size;
+      nextPutAll: ' first='; nextPutAll: (batchClasses isEmpty
+        ifTrue: ['(empty)']
+        ifFalse: [batchClasses first name]);
+      nextPutAll: ' last='; nextPutAll: (batchClasses isEmpty
+        ifTrue: ['(empty)']
+        ifFalse: [batchClasses last name]); lf.
+    stream nextPutAll: 'BATCH-DEBUG: batch-file exists='; print: ('/tmp/sunit_batch.txt' asFileReference exists);
+      nextPutAll: ' names-file exists='; print: ('/tmp/sunit_class_names.txt' asFileReference exists); lf.
+    stream nextPutAll: 'BATCH-DEADLINE: '; print: batchDeadline;
+      nextPutAll: ' (maxBatchSeconds='; print: maxBatchSeconds; nextPutAll: ')'; lf.
+    stream flush.
     self runDiagnostic: stream.
     "Install scheduler-death exception logger. DelaySemaphoreScheduler's
      runBackendLoopAtTimingPriority falls through its ensure: on unhandled
@@ -714,7 +756,15 @@ runAllTests
      DefaultExecutionEnvironment>>runTestsBy: activates TestExecutionEnvironment."
     CurrentExecutionEnvironment runTestsBy: [
     batchClasses do: [:tc | | counts |
-      [counts := self runTestClass: tc run: runNum on: stream detail: detail timeout: watchdogTimeout.
+      "Hard wallclock cutoff. Once the batch deadline passes, skip every
+       remaining class without running anything, then fall through to the
+       summary. This is the last line of defense against a wedged test."
+      (batchAborted not and: [DateAndTime now >= batchDeadline]) ifTrue: [
+        batchAborted := true.
+        stream nextPutAll: '*** BATCH DEADLINE REACHED at '; print: DateAndTime now;
+          nextPutAll: ' — skipping remaining classes'; lf. stream flush].
+      batchAborted ifFalse: [
+      [counts := self runTestClass: tc run: runNum on: stream detail: detail timeout: watchdogTimeout deadline: batchDeadline.
       totalP := totalP + (counts at: 1).
       totalF := totalF + (counts at: 2).
       totalE := totalE + (counts at: 3).
@@ -741,7 +791,9 @@ runAllTests
                 stream nextPutAll: '*** RUNNER ERROR (details unavailable: ';
                   nextPutAll: ([e2 class name] on: Error do: [:e3 | 'unknown']);
                   nextPutAll: ')'; lf]]].
-      stream flush. detail flush]].
+      stream flush. detail flush]]].
+    batchAborted ifTrue: [
+      stream nextPutAll: '*** BATCH ABORTED (deadline)'; lf. stream flush].
     stream nextPutAll: '*** BATCH COMPLETED for '; print: batchClasses size;
       nextPutAll: ' classes ('; print: batchStart; nextPutAll: '-'; print: batchEnd; nextPutAll: ')'; lf.
     stream flush.
@@ -772,8 +824,22 @@ runAllTests
 
 !SUnitRunner class methodsFor: 'running'!
 runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
-  "Run all tests in a class. Returns #(pass fail error skip timeout)."
+  "Compatibility shim: call through with a far-future deadline."
+  ^ self runTestClass: testClass run: runNum on: s detail: d
+      timeout: watchdogSecs deadline: (DateAndTime now + (Duration days: 365))! !
+
+!SUnitRunner class methodsFor: 'running'!
+runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs deadline: batchDeadline
+  "Run all tests in a class. Returns #(pass fail error skip timeout).
+   Bails out immediately if DateAndTime now >= batchDeadline."
   | sels p f e sk t testPriority consecutiveTimeouts |
+
+  "Hard deadline check. Return a zero count so the outer loop accumulates
+   nothing and moves on. The outer loop will notice the deadline too."
+  DateAndTime now >= batchDeadline ifTrue: [
+    s nextPutAll: '=== '; nextPutAll: testClass name;
+      nextPutAll: ' === SKIPPED (batch deadline)'; lf. s flush.
+    ^ {0. 0. 0. 0. 0}].
 
   "Skip genuinely abstract classes — use isAbstract instead of manual list"
   ([testClass isAbstract] on: Error do: [:e | false]) ifTrue: [
@@ -869,6 +935,14 @@ runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
     sels := (testClass allTestSelectors asArray) "use unsorted on error"].
 
   sels do: [:sel |
+    "Hard deadline short-circuit inside the selector loop."
+    DateAndTime now >= batchDeadline ifTrue: [
+      s nextPutAll: '  BAIL: batch deadline reached mid-class'; lf.
+      s nextPutAll: 'Total: '; print: sels size;
+        nextPutAll: ' P:'; print: p; nextPutAll: ' F:'; print: f;
+        nextPutAll: ' E:'; print: e; nextPutAll: ' S:'; print: sk;
+        nextPutAll: ' T:'; print: t; lf; lf. s flush.
+      ^ {p. f. e. sk. t}].
     "Minimal skips: 1GB allocations (OOM) and inherited ClassTestCase lint tests
      that run AST-parsing lint rules on every method in the class hierarchy.
      These timeout on every test class (~640) at 10s each = 100+ min of dead waiting.
@@ -1061,7 +1135,12 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
         nextPutAll: ' (exceeded '; print: seconds; nextPutAll: 's)'; lf.
       s flush.
       doneSem signal.
-      [testProcess terminate] on: Error do: [:e |]]] forkAt: 60.
+      "Force-kill: suspend is a primitive (cannot block), terminate runs
+       unwind blocks which can themselves hang. Suspend first so the test
+       cannot execute another instruction, then fire-and-forget terminate
+       in a fresh fork so the watchdog never waits on a stuck unwind."
+      [testProcess suspend] on: Error do: [:e |].
+      [[testProcess terminate] on: Error do: [:e |]] fork]] forkAt: 60.
   backupWatchdog := nil.
 
   "Wait for test completion. Poll testDone using relinquishProcessorForMicroseconds:
@@ -1077,14 +1156,18 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
      result ifNil: [result := #timeout].
      testDone := true.
      s nextPutAll: '  TIMEOUT(prim-stuck): '; nextPutAll: sel; lf. s flush.
-     [testProcess terminate] on: Error do: [:e |].
-     [watchdog terminate] on: Error do: [:e |]]]
+     "Force-kill: primitive suspend cannot block; terminate is fire-and-forget."
+     [testProcess suspend] on: Error do: [:e |].
+     [watchdog suspend] on: Error do: [:e |].
+     [[testProcess terminate] on: Error do: [:e |]] fork.
+     [[watchdog terminate] on: Error do: [:e |]] fork]]
   on: Error do: [:ex |
     ex class name = 'TestTookTooMuchTime'
       ifTrue: [
         result ifNil: [result := #timeout].
         s nextPutAll: '  TIMEOUT(env-watchdog): '; nextPutAll: sel; lf. s flush.
-        [testProcess terminate] on: Error do: [:e2 |]]
+        [testProcess suspend] on: Error do: [:e2 |].
+        [[testProcess terminate] on: Error do: [:e2 |]] fork]
       ifFalse: [ex pass]].
 
   "Clean up watchdogs if test completed before timeout"
