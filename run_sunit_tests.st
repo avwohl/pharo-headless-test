@@ -1122,7 +1122,7 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
                          'BlockClosureValueWithinDurationTest').
   ((Smalltalk globals at: #SUnitDisableTimingFastPath ifAbsent: [false]) not
     and: [timingClassNames includes: clsName]) ifTrue: [
-    | tp fastDone fastResult fastSem fastDeadline |
+    | tp fastDone fastResult fastSem fastTimeoutMs |
     fastDone := false.
     fastResult := nil.
     fastSem := Semaphore new.
@@ -1135,9 +1135,17 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
           s nextPutAll: '  FAIL: '; nextPutAll: sel;
             nextPutAll: ' ['; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: ']'; lf]]
         ensure: [fastDone := true. fastSem signal]] forkAt: priority.
-    fastDeadline := DateAndTime now + (Duration seconds: (seconds min: maxPerTest)).
-    [fastDone not and: [DateAndTime now < fastDeadline]] whileTrue: [
-      ProcessorScheduler relinquishProcessorForMicroseconds: 50000 "50ms"].
+    "Use fastSem waitTimeoutMSecs: rather than a polling loop.
+     Polling with relinquishProcessorForMicroseconds: at the caller's
+     priority starves the forked test process at the same priority
+     (same-priority round-robin only happens at the heartbeat tick,
+     every 2ms), adding ~30-50ms to each test run. That's enough to
+     make nested valueWithin tests fail the tight 150ms assertion.
+     waitTimeoutMSecs: blocks the caller cleanly, so the forked test
+     gets full CPU at P40. If the test hangs, the timeout fires and
+     we fall through to the termination path."
+    fastTimeoutMs := (seconds min: maxPerTest) * 1000.
+    fastSem waitTimeoutMSecs: fastTimeoutMs.
     fastDone ifFalse: [
       fastResult := #timeout.
       s nextPutAll: '  TIMEOUT(fast): '; nextPutAll: sel;
