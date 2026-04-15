@@ -137,10 +137,12 @@ runs automatically on image resume.
 
 ## Related
 
-- **[iospharo](https://github.com/avwohl/iospharo)** —
-  A Pharo Smalltalk VM for iOS and macOS (clean C++ interpreter, Metal
-  rendering, touch input). This test harness was originally developed as
-  part of iospharo and extracted into its own repo.
+Other repos in this collection:
+
+- **[iospharo](https://github.com/avwohl/iospharo)** — Pharo Smalltalk VM for iOS and Mac Catalyst (interpreter-only, low-bit oop encoding for ASLR compatibility).
+- **[soogle](https://github.com/avwohl/soogle)** — Smalltalk code search engine that indexes packages across Pharo, Squeak, GemStone and more.
+- **[validate_smalltalk_image](https://github.com/avwohl/validate_smalltalk_image)** — Standalone validator and export tool for Spur-format Smalltalk image files (heap integrity, SHA-256 manifests, reference graphs).
+- **[claude-skills](https://github.com/avwohl/claude-skills)** — Open source skills for Claude Code: reusable knowledge and algorithms packaged as `.claude/skills/` markdown files.
 
 ## License
 
