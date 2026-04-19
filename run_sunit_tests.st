@@ -4,6 +4,13 @@
           /tmp/sunit_test_detail.txt (per-test with run number)
  Run counter: /tmp/sunit_run_number.txt (auto-incremented)"!
 
+"Chunk-format methodsFor: shim. Pharo 13 removed it from
+ ClassDescription. Returns self so subsequent method chunks compile
+ onto this class."
+ClassDescription compile: 'methodsFor: aCategory
+  ^ self'
+  classified: '*chunk-format-compat'!
+
 Object subclass: #SUnitRunner
   instanceVariableNames: ''
   classVariableNames: ''

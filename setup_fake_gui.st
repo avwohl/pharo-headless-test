@@ -16,6 +16,12 @@
  Works on: Pharo 13, Pharo 14, any Spur VM (Cog JIT, interpreter, Mac Catalyst)
  Dependencies: none (pure Smalltalk)"!
 
+"Chunk-format methodsFor: shim. Idempotent."
+(ClassDescription canUnderstand: #methodsFor:) ifFalse: [
+  ClassDescription compile: 'methodsFor: aCategory
+    ^ self'
+    classified: '*chunk-format-compat']!
+
 "=== Step 1: Ensure Display and World exist ==="
 
 "Create Display Form if missing"
