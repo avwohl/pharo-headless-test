@@ -453,130 +453,13 @@ runAllTests
   "After the hand-curated tiers above, discover every non-abstract TestCase
    subclass in the image and add any we haven't already included. This ensures
    new tests added to the Pharo image are automatically picked up.
-   Skip list: classes known to hang, require UI, or have infrastructure issues."
-  [| allTC skipNames |
-   "Classes known to hang or timeout excessively in headless mode"
-   skipNames := #(FFICallbackParametersTest FFICallbackTest
-     GlobalIdentifierWithDefaultConfigurationTest SystemNavigationTest
-     "TimespanDoTest TimespanDoSpanAYearTest — all tests timeout in headless"
-     TimespanDoTest TimespanDoSpanAYearTest
-     RBRealizeClassParametrizedTest
-     "EpLogTest — all tests timeout (file system watchers), EpCommentTest hangs in tearDown"
-     EpLogTest EpCommentTest
-     "DirectoryEntryTest DiskFileAttributesTest DiskFileSystemTest DeleteVisitorTest — filesystem tests timeout in headless"
-     DirectoryEntryTest DiskFileAttributesTest DiskFileSystemTest DeleteVisitorTest
-     "ObsoleteTest — testTraitObsolete modifies traits, hangs"
-     ObsoleteTest
-     "DrTests*Test — test runner meta-tests hang/timeout in headless mode"
-     DrTestsTestRunnerTest DrTestsTestRunnerUITest DrTestsUITest
-     "ED*Test — emergency debugger tests all timeout in headless"
-     EDDebuggingAPITest EDEmergencyDebuggerTest
-     "EmbeddedFreeTypeFontInstallerTest — FreeType init hangs in headless"
-     EmbeddedFreeTypeFontInstallerTest
-     "CollectionValueHolderTest — hangs during test discovery (pre-test phase)"
-     CollectionValueHolderTest
-     "MirrorPrimitivesTest — exceeds 300s class timeout"
-     MirrorPrimitivesTest
-     "ProcessTest — kills Delay scheduler, corrupts scheduling state for all subsequent tests"
-     ProcessTest
-     "EpMethodAdditionTest etc — Epicea tests that use EpTestLogBuilder with DeleteVisitor cleanup"
-     "Athens* tests — all need Cairo FFI which isn't available; hang or crash"
-     AthensCairoPDFSurfaceTest AthensCairoCanvasTest
-     AthensCairoSurfaceTest AthensCanvasTest AthensCairoExportTest
-     AthensDisplayRenderTest AthensPathBuilderTest AthensPathTest
-     AthensSceneTest AthensTransformTest AthensPaintTest
-     AthensCairoSVGSurfaceTest AthensCairoMatrixTest AthensAffineTransformTest
-     "Trait tests moved to Tier 17 (run last) — no longer skipped"
-     EpMethodAdditionTest EpMethodModificationTest EpMethodRemovalTest
-     EpClassAdditionTest EpClassModificationTest EpClassRemovalTest
-     EpProtocolAdditionTest EpProtocolRemovalTest
-     EpBehaviorNameChangeTest EpCategoryChangeTest
-     EpEventTest EpHasImpactVisitorTest EpLatestCodeChangeTest
-     EpRenamePackageTest EpRevertTest EpCodeChangeIntegrationTest
-     "Ep*Test — additional Epicea tests that timeout on file watcher operations.
-      Only EpFilterTest passes — all others use EpTestLogBuilder and hang."
-     EpAnnouncementsTest EpApplyPreviewerTest EpApplyTest
-     EpMonitorTest EpExternalChangeIntegrationTest
-     EpDisabledIntegrationTest EpEnabledIntegrationTest
-     EpFileOutModificationsTest EpMergeTest EpOmbuReaderTest
-     EpSessionStoreTest EpTestLogBuilderTest
-     "Additional Ep* — any test using setUp with EpMonitor/EpLog infrastructure hangs"
-     EpHasImpactFilterTest EpLostChangesDetectorTest
-     EpLogBrowserOperationFactoryTest EpLogBrowserRefreshTest
-     EpRewriterTest EpRollbackTest EpStashTest
-     EpTriggeringIntegrationTest EpMonitorIntegrationTest
-     "FL*Test — Fuel serialization tests all timeout writing to disk in headless"
-     FLBinaryFileStreamBasicSerializationTest
-     FLBlockClosureSerializationTest FLCompiledMethodSerializationTest
-     FLGlobalClassSerializationTest FLGlobalValueSerializationTest
-     FLTCreateClassOrTraitSerializationTest FLTGlobalEnvironmentTest
-     FLTraitedClassSerializationTest
-     "FLFullBlockClosureSerializationTest etc — more Fuel tests that timeout"
-     FLFullBlockClosureSerializationTest FLCreateClassSerializationTest
-     FLCreateTraitSerializationTest FLProcessSerializationTest
-     FLContextSerializationTest FLSortedCollectionSerializationTest
-     "FastStepThroughTest — hangs in headless mode (stepper needs UI)"
-     FastStepThroughTest
-     "FileAttributesPluginPrimsTest — filesystem prim tests hang"
-     FileAttributesPluginPrimsTest
-     "FileReferenceTest — many tests timeout on filesystem ops in headless"
-     FileReferenceTest
-     "GlobalIdentifier*PersistenceTest — filesystem persistence tests timeout on every test"
-     GlobalIdentifierFuelPersistenceTest GlobalIdentifierStonPersistenceTest
-     GlobalIdentifierWithFuelTest GlobalIdentifierWithStonTest
-     "MC*Test — Monticello repository/filesystem tests timeout in headless"
-     MCDirectoryRepositoryTest MCFileInTest MCFileTreeRepositoryTest
-     MCGitBasedNetworkRepositoryTest
-     "MicFileResourceReferenceTest — testContents hangs (network file resource fetch)"
-     MicFileResourceReferenceTest
-     "MicHttpResourceReferenceTest — similar network resource fetch hang risk"
-     MicHttpResourceReferenceTest
-     "NoUnusedVariablesLeftTest — scans entire image, exceeds 80s timeout"
-     NoUnusedVariablesLeftTest
-     "OmRandomSuffixStrategyTest OmSessionStoreTest — Ombu filesystem tests timeout"
-     OmRandomSuffixStrategyTest OmSessionStoreTest
-     "RottenTestsFinderTest — testAnalyze runs entire test suite analysis, hangs"
-     RottenTestsFinderTest
-     "Delay*Scheduler*Test — switch delay scheduler implementation, kills scheduler for subsequent tests"
-     DelayBasicSchedulerMicrosecondTickerTest DelayBasicSchedulerMillisecondTickerTest
-     DelayMutexSchedulerMicrosecondTickerTest DelayMutexSchedulerMillisecondTickerTest
-     DelaySemaphoreSchedulerMicrosecondTickerTest DelaySemaphoreSchedulerMillisecondTickerTest
-     "MicGitHub*Test — network calls to GitHub hang in headless (blocking socket)"
-     MicGitHubAPITest MicGitHubRessourceReferenceTest
-     "RoassalSpecTest — Roassal GUI presenter tests timeout in headless"
-     RoassalSpecTest
-     "FBDDecompilerTest — 160 tests, many timeout at 80s (slow bytecode decompilation)"
-     FBDDecompilerTest FBDBytecodeDecompilerExamplesTest
-     "CodeSimulationTest — slow become: operations, testTranscriptPrinting timeouts"
-     CodeSimulationTest
-     "MicInlineDelimiterTest — testAddMe hangs indefinitely (0% CPU deadlock)"
-     MicInlineDelimiterTest
-     "SocketStreamTest — all tests fail with SocketError: Undefined error: 0"
-     SocketStreamTest
-     "TonelWriterV2Test — hangs on testFormatVersion (blocking filesystem write)"
-     TonelWriterV2Test
-     "ZnClientTest — testConnectionClose hangs (blocking socket connect)"
-     ZnClientTest
-     "SelfVariableTest — testUsingMethods/FFI/Super scan all methods, 80s timeout x3 = 240s wasted"
-     SelfVariableTest
-     "ThisContextVariableTest — similar reflective scanning, very slow"
-     ThisContextVariableTest
-     "BlockClosureValueWithinDurationTest — valueWithin: timing tests run forever (watchdog can't kill)"
-     BlockClosureValueWithinDurationTest
-     "TF*Test — TFFI marshalling/callback tests crash VM"
-     TFBasicTypeMarshallingTest TFBasicTypeMarshallingInCallbacksTest
-     TFCallbacksTest TFDerivedTypeMarshallingTest TFFunctionCallTest
-     TFPoolTest TFProcessSchedulerTest TFSameThreadCallTest
-     TFStructTypeMarshallingTest TFUFFIFunctionCallTest
-     ).
+   Skip list: empty — we run every non-abstract TestCase subclass.
+   The 2026-04 policy removed all class-level skips so the test suite
+   would actually exercise what real Pharo does; skipped classes were
+   hiding root-cause VM bugs behind harness exclusions."
+  [| allTC |
    allTC := (TestCase allSubclasses reject: [:c |
-     ([c isAbstract] on: Error do: [:e | true])
-       or: [(skipNames includes: c name)
-         or: [(c name beginsWith: 'Athens')
-           or: [(c name beginsWith: 'RS') "Roassal — rendering tests timeout in headless"
-             or: [(c name beginsWith: 'TF') "TFFI — marshalling/callback tests crash VM"
-               or: [(c name beginsWith: 'Sp') "Spec GUI — needs fake head (setup_fake_gui.st)"
-                   or: [(c name beginsWith: 'GlobalIdentifier') and: [c name ~= 'GlobalIdentifierMergerTest']]]]]]]])
+     [c isAbstract] on: Error do: [:e | true]])
      asSortedCollection: [:a :b | a name <= b name].
    allTC do: [:cls | addOnce value: cls]]
   on: Error do: [:e |].
@@ -1104,55 +987,16 @@ runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
    the scale knob can never produce a test that runs longer than this. The
    runner's hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait timingClassNames clsName |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
   maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [300].
 
-  "Timing-sensitive classes: SemaphoreTest / BlockClosureValueWithin*Test /
-   ProcessTest assert Delay-based timings down to the millisecond, which
-   the 4-nested-exception-handler stack (TestFailure / Deprecation /
-   TestSkipped / Error) below perturbs enough to flip the assertions.
-   For these classes, fork at P40 but with ONLY a single on: Error
-   handler and a deadline-based completion wait — no P60 watchdog
-   process. Opt out with SUnitDisableTimingFastPath."
-  clsName := testClass name asString.
-  timingClassNames := #('SemaphoreTest' 'BlockClosureValueWithinTest'
-                         'BlockClosureValueWithinDurationTest').
-  ((Smalltalk globals at: #SUnitDisableTimingFastPath ifAbsent: [false]) not
-    and: [timingClassNames includes: clsName]) ifTrue: [
-    | tp fastDone fastResult fastSem fastTimeoutMs |
-    fastDone := false.
-    fastResult := nil.
-    fastSem := Semaphore new.
-    tp := [
-      | inst |
-      inst := testClass selector: sel.
-      [[inst runCase]
-        on: TestFailure do: [:ex |
-          fastResult := #fail.
-          s nextPutAll: '  FAIL: '; nextPutAll: sel;
-            nextPutAll: ' ['; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: ']'; lf]]
-        ensure: [fastDone := true. fastSem signal]] forkAt: priority.
-    "Use fastSem waitTimeoutMSecs: rather than a polling loop.
-     Polling with relinquishProcessorForMicroseconds: at the caller's
-     priority starves the forked test process at the same priority
-     (same-priority round-robin only happens at the heartbeat tick,
-     every 2ms), adding ~30-50ms to each test run. That's enough to
-     make nested valueWithin tests fail the tight 150ms assertion.
-     waitTimeoutMSecs: blocks the caller cleanly, so the forked test
-     gets full CPU at P40. If the test hangs, the timeout fires and
-     we fall through to the termination path."
-    fastTimeoutMs := (seconds min: maxPerTest) * 1000.
-    fastSem waitTimeoutMSecs: fastTimeoutMs.
-    fastDone ifFalse: [
-      fastResult := #timeout.
-      s nextPutAll: '  TIMEOUT(fast): '; nextPutAll: sel;
-        nextPutAll: ' (exceeded '; print: (seconds min: maxPerTest); nextPutAll: 's)'; lf.
-      [tp suspend] on: Error do: [:e |].
-      [[tp terminate] on: Error do: [:e |]] fork].
-    ^ fastResult].
+  "Timing-fastpath removed 2026-04 after cc10bce fixed the alignment-lock
+   bug that was causing SemaphoreTest / BlockClosureValueWithin* to flake.
+   Every class goes through the full SUnit handler stack (TestFailure /
+   Deprecation / TestSkipped / Error) — same as stock Pharo."
   "Soft watchdog runs at min(seconds, maxPerTest); the outer hard wait
    cannot exceed maxPerTest either."
   effectiveWatchdog := seconds min: maxPerTest.
