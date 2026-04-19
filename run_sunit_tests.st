@@ -988,7 +988,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    the scale knob can never produce a test that runs longer than this. The
    runner''s hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
@@ -999,9 +999,17 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    Every class goes through the full SUnit handler stack (TestFailure /
    Deprecation / TestSkipped / Error) — same as stock Pharo."
   "Soft watchdog runs at min(seconds, maxPerTest); the outer hard wait
-   cannot exceed maxPerTest either."
-  effectiveWatchdog := seconds min: maxPerTest.
-  hardWait := (seconds * 2) min: maxPerTest.
+   cannot exceed maxPerTest either.
+   When JIT is disabled (PHARO_NO_JIT=1 env var, or #SUnitTimeoutMultiplier
+   global override), interpreter speed is ~10-100x slower on reflective /
+   recursive workloads.  Multiply the timeout so genuinely-slow tests
+   complete instead of mass-timing-out.  Default multiplier: 5x when
+   JIT is off, 1x when on.  Override with SUnitTimeoutMultiplier global."
+  noJIT := [(OSEnvironment current at: ''PHARO_NO_JIT'' ifAbsent: [nil]) notNil]
+             on: Error do: [:e | false].
+  mult := Smalltalk globals at: #SUnitTimeoutMultiplier ifAbsent: [noJIT ifTrue: [10] ifFalse: [1]].
+  effectiveWatchdog := (seconds * mult) min: maxPerTest.
+  hardWait := (seconds * 2 * mult) min: maxPerTest.
 
   "Fork test at requested priority"
   testProcess := [
