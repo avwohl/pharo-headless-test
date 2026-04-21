@@ -222,5 +222,25 @@ FakeGUI class compile: 'screenshotOf: aMorph toFile: aFilePath
   form writePNGFileNamed: aFilePath.
   ^ aFilePath' classified: 'screenshots'!
 
+"=== Image compatibility patches ==="
+
+"OCCalledMethodProxy (used by OCSpecialSelectorTest) is installed in a class's
+ method dictionary via addSelectorSilently:withMethod:.  That path ends up at
+ Symbol class>>recordSelector:, which lazily calls rebuildSelectorTable the
+ first time.  rebuildSelectorTable iterates allMethods and sends #selector to
+ each — if a proxy is installed before the table is built, the iteration
+ fails because OCCalledMethodProxy doesn't respond to #selector.  Patch the
+ proxy to delegate #selector (and #methodClass) to its originalMethod."
+(Smalltalk globals at: #OCCalledMethodProxy ifAbsent: [nil]) ifNotNil: [:cls |
+  cls compile: 'selector
+  ^ originalMethod selector' classified: '*sunit-harness-compat'.
+  cls compile: 'methodClass
+  ^ originalMethod methodClass' classified: '*sunit-harness-compat'.
+].
+
+"Force SelectorTable to build now (before any test-installed proxies), so any
+ later addSelectorSilently:withMethod: just appends to the existing table."
+Symbol selectorTable!
+
 "=== Done ==="
 Transcript show: 'FakeGUI environment installed'; cr!
