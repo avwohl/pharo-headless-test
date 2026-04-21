@@ -139,9 +139,10 @@ runs automatically on image resume.
 
 Other repos in this collection:
 
+- **[smalltalk80-2026](https://github.com/avwohl/smalltalk80-2026)** — Smalltalk-80 VM implementation of the 1983 Blue Book Xerox virtual image, targeting macOS / Mac Catalyst, iOS, Windows, and Linux.
 - **[iospharo](https://github.com/avwohl/iospharo)** — Pharo Smalltalk VM for iOS and Mac Catalyst (interpreter-only, low-bit oop encoding for ASLR compatibility).
-- **[soogle](https://github.com/avwohl/soogle)** — Smalltalk code search engine that indexes packages across Pharo, Squeak, GemStone and more.
 - **[validate_smalltalk_image](https://github.com/avwohl/validate_smalltalk_image)** — Standalone validator and export tool for Spur-format Smalltalk image files (heap integrity, SHA-256 manifests, reference graphs).
+- **[soogle](https://github.com/avwohl/soogle)** — Smalltalk code search engine that indexes packages across Pharo, Squeak, GemStone and more.
 - **[claude-skills](https://github.com/avwohl/claude-skills)** — Open source skills for Claude Code: reusable knowledge and algorithms packaged as `.claude/skills/` markdown files.
 
 ## License
