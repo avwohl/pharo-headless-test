@@ -513,22 +513,22 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
      that run AST-parsing lint rules on every method in the class hierarchy.
      These timeout on every test class (~640) at 10s each = 100+ min of dead waiting.
      They''re static analysis checks, not VM correctness tests."
-    "2026-05-07: A1 +1 sp leak fix (commit 0bd8c501) resurrected 3 tests
-     from this skip list:
-       testTransformingDeprecation, testSlotScopeParallelism, testBenchFor.
-     These pass under default JIT in 4-6 seconds each.
-     IntegerTest tests (testNthRootTruncated, testPrintStringBase, etc.)
-     pass STANDALONE under JIT but still hang in harness context after
-     JIT warm-up (>30 methods compiled within IntegerTest itself).
-     Likely a separate JIT correctness issue distinct from the +1 leak."
+    "2026-05-07: A1 +1 sp leak fix (commit 0bd8c501) plus reciprocalModulo:
+     JIT-exclude (commit ddc9485c) resurrected 6 tests from this skip list:
+       testTransformingDeprecation, testSlotScopeParallelism, testBenchFor,
+       testReciprocalModulo, testPositiveIntegerPrinting,
+       testNegativeIntegerPrinting.
+     All pass under default JIT in 4-6 seconds each.
+     testNthRootTruncated and testPrintStringBase still hang in harness —
+     separate JIT codegen bugs in their respective LargeInteger paths."
     (#(testOneGBAllocation testOneGWordAllocation
        testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
        testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
        "IntegerTest: O(n^2) LargeInteger division/printing vs reference VM''s optimized C.
         These take minutes even with scaled timeouts. When they hang at P40, the runner
         (also P40) can''t preempt to fire the watchdog, so they must be skipped."
-       testPrintStringBase testPositiveIntegerPrinting testNegativeIntegerPrinting
-       testSlowFactorial testReciprocalModulo testPrintStringAll
+       testPrintStringBase
+       testSlowFactorial testPrintStringAll
        testNthRootTruncated
        "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
         JIT and NO_JIT (slow O(n) test, not VM correctness)."
