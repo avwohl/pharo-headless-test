@@ -526,12 +526,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
      watchdog.  Re-skipped pending real JIT codegen fix:
        testReciprocalModulo (~240s under interp)
        testPositiveIntegerPrinting, testNegativeIntegerPrinting
-       (both use printStringBase: chain which is now interp-only).
-
-     testPrimesUpTo: harness hangs after RUN: testPrimesUpTo line — test
-     completes (passes standalone in <1ms) but harness can't progress to
-     next test.  Watchdog doesn't fire.  Likely Delay scheduler dies after
-     test completion under our VM's priority handling.  Skip for now."
+       (both use printStringBase: chain which is now interp-only)."
     (#(testOneGBAllocation testOneGWordAllocation
        testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
        testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
@@ -541,8 +536,6 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         with multi-statement side-effect cond block."
        testPrintStringBase testPositiveIntegerPrinting testNegativeIntegerPrinting
        testSlowFactorial testReciprocalModulo testPrintStringAll
-       "testPrimesUpTo: harness deadlock past this test (test itself OK)."
-       testPrimesUpTo
        "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
         JIT and NO_JIT (slow O(n) test, not VM correctness)."
        testPrintingRecursive)
