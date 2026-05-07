@@ -519,23 +519,24 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
 
      Resurrected from skip list (now pass):
        testTransformingDeprecation, testSlotScopeParallelism, testBenchFor,
-       testNthRootTruncated.
+       testNthRootTruncated, testPositiveIntegerPrinting,
+       testNegativeIntegerPrinting.
 
-     IntegerTest printing tests use raisedTo:/raisedToInteger:/printStringBase:
-     which are now JIT-excluded → interp-only → too slow for harness 80s
-     watchdog.  Re-skipped pending real JIT codegen fix:
-       testReciprocalModulo (~240s under interp)
-       testPositiveIntegerPrinting, testNegativeIntegerPrinting
-       (both use printStringBase: chain which is now interp-only)."
+     testReciprocalModulo: re-skipped — JIT exclude makes it interp-only
+     and too slow for harness 80s watchdog (~240s standalone).  Tests
+     correctness is fine but harness performance is not."
     (#(testOneGBAllocation testOneGWordAllocation
        testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
        testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
-       "IntegerTest: slow under interp post-JIT-excludes (raisedTo:,
-        reciprocalModulo:, raisedToInteger: chain).  Correctness OK but
-        exceeds harness 80s watchdog.  Real fix: JIT codegen for whileTrue:
-        with multi-statement side-effect cond block."
-       testPrintStringBase testPositiveIntegerPrinting testNegativeIntegerPrinting
-       testSlowFactorial testReciprocalModulo testPrintStringAll
+       "IntegerTest: O(n^2) LargeInteger division/printing vs reference VM''s optimized C.
+        These take minutes even with scaled timeouts. When they hang at P40, the runner
+        (also P40) can''t preempt to fire the watchdog, so they must be skipped."
+       testPrintStringBase
+       testSlowFactorial testPrintStringAll
+       "testReciprocalModulo: works correctness-wise but reciprocalModulo:
+        is JIT-excluded post commit ddc9485c (codegen bug); interp-only is
+        ~240s, exceeding harness 80s watchdog."
+       testReciprocalModulo
        "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
         JIT and NO_JIT (slow O(n) test, not VM correctness)."
        testPrintingRecursive)
