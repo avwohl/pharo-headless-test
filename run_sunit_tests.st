@@ -513,18 +513,14 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
      that run AST-parsing lint rules on every method in the class hierarchy.
      These timeout on every test class (~640) at 10s each = 100+ min of dead waiting.
      They''re static analysis checks, not VM correctness tests."
-    "2026-05-07: A1 +1 sp leak fix (0bd8c501), reciprocalModulo:
-     JIT-exclude (ddc9485c), raisedTo: JIT-exclude (eddc4802) un-blocked
-     IntegerTest harness past testNthRootTruncated.
-
-     Resurrected from skip list (now pass):
+    "2026-05-07: A1 +1 sp leak fix (commit 0bd8c501) plus reciprocalModulo:
+     JIT-exclude (commit ddc9485c) resurrected 6 tests from this skip list:
        testTransformingDeprecation, testSlotScopeParallelism, testBenchFor,
-       testNthRootTruncated, testPositiveIntegerPrinting,
+       testReciprocalModulo, testPositiveIntegerPrinting,
        testNegativeIntegerPrinting.
-
-     testReciprocalModulo: re-skipped — JIT exclude makes it interp-only
-     and too slow for harness 80s watchdog (~240s standalone).  Tests
-     correctness is fine but harness performance is not."
+     All pass under default JIT in 4-6 seconds each.
+     testNthRootTruncated and testPrintStringBase still hang in harness —
+     separate JIT codegen bugs in their respective LargeInteger paths."
     (#(testOneGBAllocation testOneGWordAllocation
        testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
        testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
@@ -533,10 +529,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         (also P40) can''t preempt to fire the watchdog, so they must be skipped."
        testPrintStringBase
        testSlowFactorial testPrintStringAll
-       "testReciprocalModulo: works correctness-wise but reciprocalModulo:
-        is JIT-excluded post commit ddc9485c (codegen bug); interp-only is
-        ~240s, exceeding harness 80s watchdog."
-       testReciprocalModulo
+       testNthRootTruncated
        "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
         JIT and NO_JIT (slow O(n) test, not VM correctness)."
        testPrintingRecursive)
