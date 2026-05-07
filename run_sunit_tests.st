@@ -513,6 +513,14 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
      that run AST-parsing lint rules on every method in the class hierarchy.
      These timeout on every test class (~640) at 10s each = 100+ min of dead waiting.
      They''re static analysis checks, not VM correctness tests."
+    "2026-05-07: A1 +1 sp leak fix (commit 0bd8c501) resurrected 3 tests
+     from this skip list:
+       testTransformingDeprecation, testSlotScopeParallelism, testBenchFor.
+     These pass under default JIT in 4-6 seconds each.
+     IntegerTest tests (testNthRootTruncated, testPrintStringBase, etc.)
+     pass STANDALONE under JIT but still hang in harness context after
+     JIT warm-up (>30 methods compiled within IntegerTest itself).
+     Likely a separate JIT correctness issue distinct from the +1 leak."
     (#(testOneGBAllocation testOneGWordAllocation
        testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
        testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
@@ -521,24 +529,10 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         (also P40) can''t preempt to fire the watchdog, so they must be skipped."
        testPrintStringBase testPositiveIntegerPrinting testNegativeIntegerPrinting
        testSlowFactorial testReciprocalModulo testPrintStringAll
-       "IntegerTest>>testNthRootTruncated: hangs under default JIT (pre-existing
-        DEFER=0 bug that manifests at default after enough methods compile).
-        See memory project_nthroot_eager_hang.md. Passes under NO_JIT."
        testNthRootTruncated
-       "testTransformingDeprecation hangs the VM: Deprecation>>transform triggers
-        code rewriting that creates an infinite loop or high-priority process, starving
-        the P40 watchdog. The watchdog never fires even after 10+ minutes."
-       testTransformingDeprecation
-       "ArrayTest>>testPrintingRecursive — recursive printString timeout on interpreter"
-       testPrintingRecursive
-       "SlotIntegrationTest>>testSlotScopeParallelism — leaves AnObsoleteSlotTestsClassA
-        that poisons package iteration (isManifest DNU) for all subsequent tests"
-       testSlotScopeParallelism
-       "BlockClosureTest>>testBenchFor — benchFor: assumes JIT-level
-        iteration rate (needs 10+ iterations of [100 factorial] in 500ms).
-        On a pure interpreter 100x slower than Cog this is a speed test,
-        not a correctness test."
-       testBenchFor)
+       "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
+        JIT and NO_JIT (slow O(n) test, not VM correctness)."
+       testPrintingRecursive)
       includes: sel) ifFalse: [
       | result isExpectedFailure |
       "Check for <expectedFailure> pragma — these are known to fail in all VMs"
