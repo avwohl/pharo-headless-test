@@ -171,6 +171,35 @@ SUnitRunner class compile: 'runAllTests
       o nextPutAll: ''msg: ''; nextPutAll: (e messageText ifNil: [''?'']); lf]].
   batchClasses ifNil: [batchClasses := testClasses copyFrom: batchStart to: batchEnd].
 
+  "Suspend any Morphic / WorldRenderer processes left running by the image
+   prep step (e.g., the UI process spawned by setup_fake_gui.st''s
+   MorphicUIManager new beDefault). Calypso tests open real
+   ClyFullBrowserMorph windows; a concurrent redraw process can hit a nil
+   submorph during WorldState>>displayWorldSafely:, signal an unhandled
+   DNU in a non-test process, and trigger Smalltalk exitFailure — silently
+   killing the runner mid-batch (deterministically at class 636 /
+   ClyBrowserToolValidityTest in earlier runs).  Mirrors the same
+   suspension that test_load_image''s eval-mode startup.st does."
+  [| active |
+    active := Processor activeProcess.
+    Process allInstances do: [:p | | ctx walk depth morphic clsName |
+      ctx := p suspendedContext.
+      morphic := false. walk := ctx. depth := 0.
+      [walk == nil or: [depth >= 30 or: [morphic]]] whileFalse: [
+        clsName := walk method methodClass name asString.
+        ((clsName beginsWith: ''World'') or: [
+          (clsName beginsWith: ''MorphicRenderLoop'') or: [
+          (clsName beginsWith: ''HandMorph'') or: [
+          (clsName beginsWith: ''Morph'') or: [
+          (clsName beginsWith: ''EventSensor'') or: [
+          (clsName beginsWith: ''Sensor'') or: [
+          clsName beginsWith: ''NullWorldRenderer'']]]]]])
+          ifTrue: [morphic := true].
+        walk := walk sender. depth := depth + 1].
+      (morphic and: [p ~~ active])
+        ifTrue: [[p suspend] on: Error do: [:e2 |]]]]
+  on: Error do: [:e | "swallow — best-effort"].
+
   "Hard wallclock deadline for the entire batch. If any combination of tests
    manages to outrun the per-test watchdogs (stuck terminate, blocking C
    primitive, scheduler death, etc.), the class loop will short-circuit once
