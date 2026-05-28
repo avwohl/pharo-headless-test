@@ -11,6 +11,17 @@ ClassDescription compile: 'methodsFor: aCategory
   ^ self'
   classified: '*chunk-format-compat'!
 
+"FileReference >> #lines shim.  Our VM has a bug where the upstream
+ Pharo `contents` method's inner non-local return doesn't fire
+ (`self readStreamDo: [:s | ^ s contents]` returns self instead of
+ the file contents).  Override #lines to read via the stream form
+ directly, no non-local return needed."
+FileReference compile: 'lines
+  | content |
+  content := self readStreamDo: [:s | s contents].
+  ^ content lines'
+  classified: '*sunit-runner-shim'!
+
 Object subclass: #SUnitRunner
   instanceVariableNames: ''
   classVariableNames: ''
@@ -76,7 +87,7 @@ SUnitRunner class compile: 'runAllTests
   [| listFile |
    listFile := ''/tmp/sunit_test_classes.txt'' asFileReference.
    listFile exists ifTrue: [
-     listFile contents lines do: [:raw |
+     listFile lines do: [:raw |
        | trimmed |
        trimmed := raw trimBoth.
        trimmed isEmpty ifFalse: [
@@ -132,7 +143,7 @@ SUnitRunner class compile: 'runAllTests
    classNamesFile := ''/tmp/sunit_class_names.txt'' asFileReference.
    classNamesFile exists ifTrue: [
      | names selected missing |
-     names := classNamesFile contents lines
+     names := classNamesFile lines
        collect: [:l | l trimBoth]
        thenSelect: [:l | l notEmpty].
      selected := OrderedCollection new.
