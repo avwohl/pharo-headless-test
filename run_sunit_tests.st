@@ -511,6 +511,16 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
     s nextPutAll: ''  SORT-ERROR: ''; nextPutAll: ex class name; nextPutAll: '' - ''; nextPutAll: ex messageText; lf. s flush.
     sels := (testClass allTestSelectors asArray) "use unsorted on error"].
 
+  "Optional per-method filter: /tmp/sunit_method_names.txt (one selector per
+   line) restricts which test methods run — used to isolate a single test from
+   a hang-prone full-class suite (e.g. ContextTest>>testJump under det-sched)."
+  (''/tmp/sunit_method_names.txt'' asFileReference exists) ifTrue: [
+    | wanted |
+    wanted := ((''/tmp/sunit_method_names.txt'' asFileReference contents lines)
+                  collect: [:ln | ln trimBoth]) asSet.
+    sels := sels select: [:sel | wanted includes: sel asString].
+    s nextPutAll: ''  METHOD-FILTER: ''; print: sels size; nextPutAll: '' selected''; lf. s flush].
+
   sels do: [:sel |
     "Hard deadline short-circuit inside the selector loop."
     DateAndTime now >= batchDeadline ifTrue: [
