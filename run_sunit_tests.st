@@ -22,6 +22,29 @@ FileReference compile: 'lines
   ^ content lines'
   classified: '*sunit-runner-shim'!
 
+"Context >> #copyTo: is RECURSIVE in stock Pharo (copies the sender chain via
+ `tmp1 privSender: (self sender copyTo: aContext)`), so freezing/copying a deep
+ stack — e.g. capturing an error''s signalerContext on a ~4000-deep call chain —
+ recurses ~chain-deep and overflows the VM frame stack (fd=4096). That overflow
+ termination then skipped ensure:/ifCurtailed: unwinds, LEAKING held critical:
+ mutexes, and the Delay/timer scheduler blocked on the leaked mutex forever —
+ the full-suite timer-scheduler-wedge (blocker #2, ~class 511). Replace with an
+ ITERATIVE copy (same result, no recursion) so no deep stack ever overflows
+ during freeze/copy. Verified: 5000-deep recursion that errors is now caught
+ cleanly with 0 overflows; normal catch + ensure: unwinding unaffected."
+Context compile: 'copyTo: aContext
+  | head prev cur copy |
+  self == aContext ifTrue: [ ^ nil ].
+  head := nil. prev := nil. cur := self.
+  [ cur ~~ aContext and: [ cur notNil ] ] whileTrue: [
+    copy := cur copy.
+    prev isNil ifTrue: [ head := copy ] ifFalse: [ prev privSender: copy ].
+    prev := copy.
+    cur := cur sender ].
+  prev ifNotNil: [ prev privSender: nil ].
+  ^ head'
+  classified: '*sunit-runner-shim'!
+
 Object subclass: #SUnitRunner
   instanceVariableNames: ''
   classVariableNames: ''
