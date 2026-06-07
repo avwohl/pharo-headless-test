@@ -238,8 +238,15 @@ SUnitRunner class compile: 'runAllTests
    manages to outrun the per-test watchdogs (stuck terminate, blocking C
    primitive, scheduler death, etc.), the class loop will short-circuit once
    this deadline passes so the runner cannot hang forever. Override with
-   Smalltalk globals at: #SUnitMaxBatchSeconds (default 7200 = 2h)."
-  maxBatchSeconds := Smalltalk globals at: #SUnitMaxBatchSeconds ifAbsent: [7200].
+   Smalltalk globals at: #SUnitMaxBatchSeconds, or the PHARO_SUNIT_MAX_BATCH_SECONDS
+   env var. Default 21600 = 6h: the custom VM is 10-100x slower than Cog on
+   reflective workloads (Trait recompilation, whichMethodsReferTo:, etc.), so a
+   complete 2051-class run needs hours; a 2h cap aborts it around class ~1200."
+  maxBatchSeconds := Smalltalk globals
+    at: #SUnitMaxBatchSeconds
+    ifAbsent: [[(OSEnvironment current at: ''PHARO_SUNIT_MAX_BATCH_SECONDS'' ifAbsent: [nil])
+                  ifNil: [21600] ifNotNil: [:s | s asInteger]]
+               on: Error do: [:e | 21600]].
   batchDeadline := DateAndTime now + (Duration seconds: maxBatchSeconds).
   batchAborted := false.
 
