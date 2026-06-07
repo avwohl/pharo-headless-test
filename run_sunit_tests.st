@@ -830,6 +830,32 @@ SUnitRunner class compile: 'startUp: resuming
   (''/tmp/sunit_run_completed.txt'' asFileReference exists) ifTrue: [
     Transcript show: ''SUnitRunner: previous run completed, skipping auto-restart''; cr.
     ^ self].
+  "Suspend the saved WorldMorph render loop FIRST, before any other startup
+   work. On our custom VM the headless resume restarts MorphicRenderLoop at
+   pri-80; it busy-spins WorldState>>drawWorld: (Morphic DNUs), starves the
+   pri-80 Delay scheduler, and the scheduler dies (timerSem=nil) → only-idle
+   wedge before any test runs. The same suspension lived inside runAllTests
+   but ran ~111 lines too late (after the deferred timer bootstrap at step
+   25M). Doing it as the very first startUp: action keeps the scheduler alive."
+  [| active |
+    active := Processor activeProcess.
+    Process allInstances do: [:p | | ctx walk depth morphic clsName |
+      ctx := p suspendedContext.
+      morphic := false. walk := ctx. depth := 0.
+      [walk == nil or: [depth >= 30 or: [morphic]]] whileFalse: [
+        clsName := walk method methodClass name asString.
+        ((clsName beginsWith: ''World'') or: [
+          (clsName beginsWith: ''MorphicRenderLoop'') or: [
+          (clsName beginsWith: ''HandMorph'') or: [
+          (clsName beginsWith: ''Morph'') or: [
+          (clsName beginsWith: ''EventSensor'') or: [
+          (clsName beginsWith: ''Sensor'') or: [
+          clsName beginsWith: ''NullWorldRenderer'']]]]]])
+          ifTrue: [morphic := true].
+        walk := walk sender. depth := depth + 1].
+      (morphic and: [p ~~ active])
+        ifTrue: [[p suspend] on: Error do: [:e2 |]]]]
+  on: Error do: [:e | "best-effort"].
   self runAllTests' classified: 'startup'!
 
 SUnitRunner class compile: 'shutDown: quitting' classified: 'startup'!
