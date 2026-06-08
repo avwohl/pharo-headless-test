@@ -45,6 +45,23 @@ Context compile: 'copyTo: aContext
   ^ head'
   classified: '*sunit-runner-shim'!
 
+"FFIArchitecture class>>forCurrentArchitecture is `(self allSubclasses detect:
+ #isActive) uniqueInstance` — recomputed on EVERY ExternalAddress FFI access
+ (platformLongAt: etc.). `allSubclasses` is a reflective hierarchy walk; on our
+ VM it runs at only ~6k calls/sec (~0.16ms each, vs ~100x faster on Cog).
+ FreeType text composition (Shout styling in editor/notebook tests) does
+ THOUSANDS of FFI struct reads per layout, so each Cly*/text-composition test
+ blows past the 80s watchdog -> TIMEOUT, and the full run can't reach the
+ ~1100 classes past ClyNotebookPageRecyclerTest. The architecture is FIXED for
+ the life of the session, so memoize it (upstream Pharo caches this too).
+ Measured win: 50k calls 8.13s -> 0.052s (~156x). Pure speed; the returned
+ value is identical, so test PASS/FAIL semantics are unchanged."
+FFIArchitecture addClassVarNamed: #ForCurrentArchitectureCache!
+FFIArchitecture class compile: 'forCurrentArchitecture
+  ^ ForCurrentArchitectureCache ifNil: [
+      ForCurrentArchitectureCache := (self allSubclasses detect: #isActive) uniqueInstance ]'
+  classified: '*sunit-runner-perf'!
+
 Object subclass: #SUnitRunner
   instanceVariableNames: ''
   classVariableNames: ''
