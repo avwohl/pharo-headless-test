@@ -352,6 +352,28 @@ SUnitRunner class compile: 'runAllTests
        stream flush]]
     on: Error do: [:e |
      stream nextPutAll: ''SYMTABLE-CHECK error: ''; nextPutAll: e messageText; lf. stream flush].
+    "NANO-CORRUPT tripwire (2026-06-11, the -2^62-ns lesion): install a
+     guarded DateAndTime class>>now that logs the RAW corrupt nanoTicks
+     integer (bit pattern pins the wrap) and self-heals by recomputing.
+     Sporadic ~1-2 per 2500 tests; every suite run is now a catcher."
+    [DateAndTime class compile: ''now
+	| nanoTicks tries |
+	tries := 0.
+	[nanoTicks := self clock microsecondClockValue * 1000.
+	 nanoTicks < 1000000000000000000 and: [tries < 5]] whileTrue: [
+		tries := tries + 1.
+		Smalltalk stderr nextPutAll: ''''[NANO-CORRUPT] raw=''''; 
+			nextPutAll: nanoTicks printString;
+			nextPutAll: '''' hex=''''; nextPutAll: (nanoTicks printStringBase: 16);
+			nextPutAll: '''' try=''''; nextPutAll: tries printString; lf].
+	^ self basicNew
+		setJdn: Epoch
+		seconds: 0
+		nano: nanoTicks
+		offset: self localOffset'' classified: ''system primitives''.
+     stream nextPutAll: ''NANO-TRIPWIRE: installed''; lf. stream flush]
+    on: Error do: [:e |
+     stream nextPutAll: ''NANO-TRIPWIRE failed: ''; nextPutAll: e messageText; lf. stream flush].
     "Patch test timeouts for non-JIT VM. Read scale from /tmp/sunit_timeout_scale.txt
      (default 10). Override TestCase>>defaultTimeLimit and remove per-class overrides
      so all tests inherit a generous scaled timeout instead of the 10s JIT default."
@@ -792,6 +814,13 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
       testDone := true.
       s nextPutAll: ''  TIMEOUT: ''; nextPutAll: sel;
         nextPutAll: '' (exceeded ''; print: effectiveWatchdog; nextPutAll: ''s)''; lf.
+      "Corruption forensics (2026-06-11): if the deadline or clock is a
+       corrupted value, the verdict is spurious — print both so the VM-side
+       silent-value-corruption hunt can see the shape."
+      [s nextPutAll: ''    WD-CLOCK now=''; nextPutAll: DateAndTime now printString;
+        nextPutAll: '' deadline=''; nextPutAll: deadline printString;
+        nextPutAll: '' wd=''; print: effectiveWatchdog; lf] on: Error do: [:e |
+        s nextPutAll: ''    WD-CLOCK print failed: ''; nextPutAll: e class name; lf].
       s flush.
       doneSem signal.
       "Force-kill: suspend is a primitive (cannot block), terminate runs
