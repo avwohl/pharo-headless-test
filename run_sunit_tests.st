@@ -56,7 +56,10 @@ Context compile: 'copyTo: aContext
  the life of the session, so memoize it (upstream Pharo caches this too).
  Measured win: 50k calls 8.13s -> 0.052s (~156x). Pure speed; the returned
  value is identical, so test PASS/FAIL semantics are unchanged."
-FFIArchitecture addClassVarNamed: #ForCurrentArchitectureCache!
+"Idempotent: re-filing this script (runner updates) must not abort on the
+ already-added class var (addClassVarNamed: errors if it exists)."
+[FFIArchitecture addClassVarNamed: #ForCurrentArchitectureCache]
+  on: Error do: [:e | ]!
 FFIArchitecture class compile: 'forCurrentArchitecture
   ^ ForCurrentArchitectureCache ifNil: [
       ForCurrentArchitectureCache := (self allSubclasses detect: #isActive) uniqueInstance ]'
@@ -764,11 +767,24 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
 
   "Fork test at requested priority"
   testProcess := [
-    | testInstance |
+    | testInstance runBlock |
     testInstance := testClass selector: sel.
     "Set testCase on TestExecutionEnvironment so EpMonitor can query shouldLogWithEpicea"
     [CurrentExecutionEnvironment value instVarNamed: ''testCase'' put: testInstance] on: Error do: [:e2 |].
-    [[[[[testInstance runCase]
+    "Framework-self-tests (TestExecutionEnvironment / ProcessMonitorTestService)
+     inspect the suspendedContext SHAPE of processes they create. Our forked
+     test process inherits the runner''s wrapping TestExecutionEnvironment
+     (Process class>>forContext:priority: -> installEnvIntoForked:), whose
+     ProcessMonitorTestService wraps every new process via Process>>on:do: —
+     mutating that shape and making the self-tests'' own
+     prepareForNewProcess: guards bail (receiver no longer isClosure).
+     Cog''s inline runner has no wrapper env, so they pass there. Run these
+     classes under the DEFAULT environment — the exact context they expect."
+    runBlock := (#(''TestExecutionEnvironmentTest'' ''ProcessMonitorTestServiceTest'' ''TestExecutionEnvironmentTestCase'' ''TestServiceExampleTest'')
+        includes: testClass name asString)
+      ifTrue: [[DefaultExecutionEnvironment beActiveDuring: [testInstance runCase]]]
+      ifFalse: [[testInstance runCase]].
+    [[[[[runBlock value]
       on: TestFailure do: [:ex |
         result := #fail.
         s nextPutAll: ''  FAIL: ''; nextPutAll: sel;
