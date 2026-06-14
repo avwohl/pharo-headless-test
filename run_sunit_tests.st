@@ -79,6 +79,31 @@ UndefinedObject compile: 'findNextHandlerContext
   "Terminate the handler context chain -- no more contexts to search."
   ^ nil' classified: 'private'!
 
+"SHA1 >> #hashStream: feeds each middle 64-byte block straight to processBuffer:
+ as whatever the stream's #next: returns. For a *character* (String) stream that
+ is a String; the Smalltalk fallback expandedBlock: (used when the native
+ DSAPlugin SHA primitive is absent — i.e. crypto-OFF builds) does
+ `ThirtyTwoBitRegister loadFrom:` which needs byte INTEGERS, so it errors /
+ produces a wrong digest on inputs > 64 bytes. The final partial block is fine
+ because processFinalBuffer: copies into a ByteArray first; only the
+ direct-from-stream middle blocks are affected. Caught by
+ SHA1Test>>testLargeCharacterStream (260 bytes). Fix: convert the middle block to
+ a ByteArray (the same bytes the native primitive reads); single-line change,
+ rest of the upstream method identical. See docs/image_issues.md."
+SHA1 compile: 'hashStream: aPositionableStream
+  | startPosition buf bitLength |
+  self initializeTotals.
+  aPositionableStream atEnd ifTrue: [self processFinalBuffer: #() bitLength: 0].
+  startPosition := aPositionableStream position.
+  [aPositionableStream atEnd] whileFalse:
+    [ buf := (aPositionableStream next: 64) asByteArray.
+    (aPositionableStream atEnd not and: [buf size = 64])
+      ifTrue: [self processBuffer: buf]
+      ifFalse: [ bitLength := (aPositionableStream position - startPosition) * 8.
+        self processFinalBuffer: buf bitLength: bitLength]].
+  ^ self finalHash asByteArrayOfSize: 20'
+  classified: '*sunit-runner-shim'!
+
 SUnitRunner class compile: 'nextRunNumber
   "Read, increment, and persist the run counter."
   | file num |
