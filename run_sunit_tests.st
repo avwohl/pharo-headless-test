@@ -104,6 +104,20 @@ SHA1 compile: 'hashStream: aPositionableStream
   ^ self finalHash asByteArrayOfSize: 20'
   classified: '*sunit-runner-shim'!
 
+"SHA256 native primitive: the kernel SHA256 is PURE Smalltalk (ThirtyTwoBitRegister
+ objects, ~1M allocations per 100K bytes), ~15x slower than Cog, so the 1M-byte
+ SHA256Test>>testFips180Example3 (self-limited to 10s wall) tips past its budget
+ under full-suite load (passes in isolation at ~7s). Cog ships native SHA1/MD5
+ block primitives via DSAPlugin; our VM now also ships a native SHA256
+ (primitiveSHA256Message in DSAPrims). Route SHA256 class>>hashMessage: through it,
+ keeping the Smalltalk path as the fallback when the primitive is absent. Validated:
+ digest is correct (FIPS-180 example 3 = cdc76e5c..., 'abc' = ba7816bf...), and the
+ 1M-byte hash drops 7000ms -> 2ms. Same spirit as the SHA1 shim above."
+SHA256 class compile: 'hashMessage: aStringOrByteArray
+  <primitive: ''primitiveSHA256Message'' module: ''DSAPrims''>
+  ^ self new hashMessage: aStringOrByteArray'
+  classified: '*sunit-runner-perf'!
+
 SUnitRunner class compile: 'nextRunNumber
   "Read, increment, and persist the run counter."
   | file num |
