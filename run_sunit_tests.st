@@ -389,7 +389,14 @@ SUnitRunner class compile: 'runAllTests
      that busy-polls the WALLCLOCK (not Delay), probes whether Delays still fire,
      and drives `Delay scheduler restartTimerEventLoop` when they don''t. Stack-safe
      (Smalltalk) and self-paced; install once. See docs/scheduler-halt-analysis.md."
-    [(Smalltalk globals includesKey: #SUnitDelayKeepaliveRunning) ifFalse: [
+    "OPT-IN (default OFF): the keepalive''s P70 busy-poll measurably slows reflective
+     class/trait-creation suites — e.g. soogle:Fuel goes 733/10/6 in 242s WITHOUT it
+     vs stalling at 266/700s WITH it (FLCreateClass/TraitSerializationTest time out).
+     It is a TARGETED recovery for suites that hit the Delay-scheduler wedge (e.g.
+     soogle:PolyMath, which freezes at ~455/942 without it). Enable per-suite with
+     PHARO_DELAY_KEEPALIVE=1; default-off keeps Fuel/kernel unregressed."
+    [((Smalltalk globals includesKey: #SUnitDelayKeepaliveRunning) not
+        and: [(OSEnvironment current at: ''PHARO_DELAY_KEEPALIVE'' ifAbsent: [nil]) notNil]) ifTrue: [
        Smalltalk globals at: #SUnitDelayKeepaliveRunning put: true.
        [[true] whileTrue: [
           | sem startMs alive |
