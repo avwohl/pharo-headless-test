@@ -379,44 +379,26 @@ SUnitRunner class compile: 'runAllTests
     on: Error do: [:e |
      stream nextPutAll: ''SCHED-LOGGER-ERR: ''; nextPutAll: e class name;
        nextPutAll: '' ''; nextPutAll: (e messageText ifNil: [''?'']); lf. stream flush].
-    "VM scheduler-halt recovery (2026-06-24). The VM''s [DELAY-DEATH] re-signal
-     recovery is futile when the Delay scheduler is SUSPENDED rather than waiting
-     on the timing semaphore (empirically it fires 18+ times and the scheduler
-     never re-arms). A runaway/slow test (e.g. PMArbitraryPrecisionFloatTest) can
-     then wedge the scheduler and FREEZE the run mid-class, because the existing
-     class-boundary restart is never reached (the per-test BAIL keys on
-     Delay-based TIMEOUTs that can no longer fire). Fork an independent keepalive
-     that busy-polls the WALLCLOCK (not Delay), probes whether Delays still fire,
-     and drives `Delay scheduler restartTimerEventLoop` when they don''t. Stack-safe
-     (Smalltalk) and self-paced; install once. See docs/scheduler-halt-analysis.md."
-    "OPT-IN (default OFF): the keepalive''s P70 busy-poll measurably slows reflective
-     class/trait-creation suites — e.g. soogle:Fuel goes 733/10/6 in 242s WITHOUT it
-     vs stalling at 266/700s WITH it (FLCreateClass/TraitSerializationTest time out).
-     It is a TARGETED recovery for suites that hit the Delay-scheduler wedge (e.g.
-     soogle:PolyMath, which freezes at ~455/942 without it). Enable per-suite with
-     PHARO_DELAY_KEEPALIVE=1; default-off keeps Fuel/kernel unregressed."
-    [((Smalltalk globals includesKey: #SUnitDelayKeepaliveRunning) not
-        and: [(OSEnvironment current at: ''PHARO_DELAY_KEEPALIVE'' ifAbsent: [nil]) notNil]) ifTrue: [
-       Smalltalk globals at: #SUnitDelayKeepaliveRunning put: true.
+    "VM-core self-heal (2026-06-24). The Delay scheduler can wedge (suspended, not waiting on
+     the timing semaphore) when a slow/runaway test fires the watchdog; the VM''s [DELAY-DEATH]
+     re-signal recovery is then futile (fires 18+ times, never re-arms) and the run freezes
+     mid-class. Register a ZERO-OVERHEAD recovery process: it just waits on a Semaphore that the
+     VM signals (primitiveRegisterDelayRecoverySemaphore) from its [DELAY-DEATH] detector — which
+     fires ONLY on a genuine wedge — then drives `Delay scheduler restartTimerEventLoop` (a fresh
+     scheduler process). Because it wakes only on a real wedge, it adds NO overhead to healthy
+     suites (unlike the prior busy-poll keepalive, which regressed soogle:Fuel). Default-on; the
+     VM signal is opt-out via PHARO_NO_DELAY_HARD_RESTART. See docs/scheduler-halt-analysis.md."
+    [(Smalltalk globals includesKey: #SUnitDelayRecoveryRunning) ifFalse: [
+       Smalltalk globals at: #SUnitDelayRecoveryRunning put: true.
+       Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self''.
+       (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) vmRegisterAsDelayRecovery.
        [[true] whileTrue: [
-          | sem startMs alive |
-          sem := Semaphore new.
-          [[(Delay forMilliseconds: 100) wait. sem signal] on: Error do: [:e | sem signal]] fork.
-          startMs := Time millisecondClockValue. alive := false.
-          [alive not and: [((Time millisecondClockValue - startMs) bitAnd: 16r1FFFFFFF) < 4000]]
-            whileTrue: [
-              sem isSignaled ifTrue: [alive := true].
-              alive ifFalse: [ProcessorScheduler relinquishProcessorForMicroseconds: 50000]].
-          alive ifFalse: [
-            [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
-            ProcessorScheduler relinquishProcessorForMicroseconds: 100000].
-          startMs := Time millisecondClockValue.
-          [((Time millisecondClockValue - startMs) bitAnd: 16r1FFFFFFF) < 1000]
-            whileTrue: [ProcessorScheduler relinquishProcessorForMicroseconds: 50000]]
-       ] forkAt: 70.
-       stream nextPutAll: ''DELAY-KEEPALIVE-INSTALLED''; lf. stream flush]]
+          (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
+          [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
+          Processor yield]] forkAt: 70.
+       stream nextPutAll: ''DELAY-RECOVERY-REGISTERED''; lf. stream flush]]
       on: Error do: [:e |
-       stream nextPutAll: ''DELAY-KEEPALIVE-ERR: ''; nextPutAll: e class name; lf. stream flush].
+       stream nextPutAll: ''DELAY-RECOVERY-ERR: ''; nextPutAll: e class name; lf. stream flush].
     "Check symbol table for Symbol class corruption"
     [| symCls count |
      symCls := Symbol.
