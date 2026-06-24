@@ -379,6 +379,37 @@ SUnitRunner class compile: 'runAllTests
     on: Error do: [:e |
      stream nextPutAll: ''SCHED-LOGGER-ERR: ''; nextPutAll: e class name;
        nextPutAll: '' ''; nextPutAll: (e messageText ifNil: [''?'']); lf. stream flush].
+    "VM scheduler-halt recovery (2026-06-24). The VM''s [DELAY-DEATH] re-signal
+     recovery is futile when the Delay scheduler is SUSPENDED rather than waiting
+     on the timing semaphore (empirically it fires 18+ times and the scheduler
+     never re-arms). A runaway/slow test (e.g. PMArbitraryPrecisionFloatTest) can
+     then wedge the scheduler and FREEZE the run mid-class, because the existing
+     class-boundary restart is never reached (the per-test BAIL keys on
+     Delay-based TIMEOUTs that can no longer fire). Fork an independent keepalive
+     that busy-polls the WALLCLOCK (not Delay), probes whether Delays still fire,
+     and drives `Delay scheduler restartTimerEventLoop` when they don''t. Stack-safe
+     (Smalltalk) and self-paced; install once. See docs/scheduler-halt-analysis.md."
+    [(Smalltalk globals includesKey: #SUnitDelayKeepaliveRunning) ifFalse: [
+       Smalltalk globals at: #SUnitDelayKeepaliveRunning put: true.
+       [[true] whileTrue: [
+          | sem startMs alive |
+          sem := Semaphore new.
+          [[(Delay forMilliseconds: 100) wait. sem signal] on: Error do: [:e | sem signal]] fork.
+          startMs := Time millisecondClockValue. alive := false.
+          [alive not and: [((Time millisecondClockValue - startMs) bitAnd: 16r1FFFFFFF) < 4000]]
+            whileTrue: [
+              sem isSignaled ifTrue: [alive := true].
+              alive ifFalse: [ProcessorScheduler relinquishProcessorForMicroseconds: 50000]].
+          alive ifFalse: [
+            [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
+            ProcessorScheduler relinquishProcessorForMicroseconds: 100000].
+          startMs := Time millisecondClockValue.
+          [((Time millisecondClockValue - startMs) bitAnd: 16r1FFFFFFF) < 1000]
+            whileTrue: [ProcessorScheduler relinquishProcessorForMicroseconds: 50000]]
+       ] forkAt: 70.
+       stream nextPutAll: ''DELAY-KEEPALIVE-INSTALLED''; lf. stream flush]]
+      on: Error do: [:e |
+       stream nextPutAll: ''DELAY-KEEPALIVE-ERR: ''; nextPutAll: e class name; lf. stream flush].
     "Check symbol table for Symbol class corruption"
     [| symCls count |
      symCls := Symbol.
