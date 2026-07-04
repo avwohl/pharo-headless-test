@@ -390,7 +390,7 @@ SUnitRunner class compile: 'runAllTests
      VM signal is opt-out via PHARO_NO_DELAY_HARD_RESTART. See docs/scheduler-halt-analysis.md."
     [(Smalltalk globals includesKey: #SUnitDelayRecoveryRunning) ifFalse: [
        Smalltalk globals at: #SUnitDelayRecoveryRunning put: true.
-       Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self''.
+       Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self'' classified: ''*vm-delay-recovery''.
        (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) vmRegisterAsDelayRecovery.
        [[true] whileTrue: [
           (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
