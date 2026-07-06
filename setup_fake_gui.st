@@ -222,6 +222,32 @@ FakeGUI class compile: 'screenshotOf: aMorph toFile: aFilePath
   form writePNGFileNamed: aFilePath.
   ^ aFilePath' classified: 'screenshots'!
 
+FakeGUI class compile: 'startCycleLoop
+  "Fork a Delay-paced World-cycle loop so deferred UI work actually runs.
+
+   Stock CI runs tests IN the UI process, so Morph tests that call
+   waitUntilUIRedrawed hit the direct doOneCycle branch.  Our runner forks
+   tests as plain processes; the tests then DEFER a semaphore signal to the
+   World and wait for a UI cycle that otherwise never comes — FTTableMorph /
+   Sp* tree+table adapter tests read back empty submorphs (2026-07-06).
+
+   Priority 40 + a 25ms Delay pace keeps it cooperative: while a test
+   computes, the loop stays parked behind it (Cog same-priority rule);
+   the moment the test blocks in a UI wait, the loop is the only ready
+   P40 process, cycles, and delivers the deferred signal.  Each cycle is
+   error-guarded — a failed draw must not kill the loop.  The runner
+   startUp: calls this AFTER its Morphic-process suspension sweep, so the
+   loop is never swept."
+  | p |
+  "Always replace: a loop revived from a snapshot arrives suspended (the
+   startup sweep sees its Morphic frames) — terminate it and fork fresh."
+  (Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [nil]) ifNotNil: [:old |
+    [old terminate] on: Error do: [:e | ]].
+  p := [[ [ MorphicRenderLoop new doOneCycle ] on: Error do: [:e | ].
+          (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
+  Smalltalk at: #FakeGUICycleLoop put: p.
+  ^ p' classified: 'running'!
+
 "=== Image compatibility patches ==="
 
 "OCCalledMethodProxy (used by OCSpecialSelectorTest) is installed in a class's

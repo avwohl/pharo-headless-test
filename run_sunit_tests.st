@@ -1023,6 +1023,13 @@ SUnitRunner class compile: 'startUp: resuming
       (morphic and: [p ~~ active])
         ifTrue: [[p suspend] on: Error do: [:e2 |]]]]
   on: Error do: [:e | "best-effort"].
+  "AFTER the sweep: start the fake-GUI paced World-cycle loop (if the
+   prep installed FakeGUI).  Forked tests defer UI work to the World and
+   wait for a cycle; without a UI process nothing delivers it and the
+   Morph/Sp*-adapter tests read back empty widgets.  Started post-sweep
+   so the sweep can never suspend it."
+  [(Smalltalk globals at: #FakeGUI ifAbsent: [nil])
+    ifNotNil: [:fg | fg startCycleLoop]] on: Error do: [:e | "best-effort"].
   self runAllTests' classified: 'startup'!
 
 SUnitRunner class compile: 'shutDown: quitting' classified: 'startup'!
