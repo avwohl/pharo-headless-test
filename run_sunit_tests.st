@@ -891,6 +891,23 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
       ProcessorScheduler relinquishProcessorForMicroseconds: 100000 "100ms"].
     testDone ifFalse: [
       result := #timeout.
+      "KILL FIRST, ANNOUNCE AFTER (2026-07-06).  Setting testDone/printing
+       the verdict before the kill opened a race that ORPHANED every
+       timed-out test: the moment testDone goes true, the P80 runner main
+       wakes from its poll loop and runs the ''clean up watchdogs'' path
+       ([watchdog suspend] below), suspending THIS process between the
+       verdict flush and the suspend/terminate lines — the runaway test
+       process was never killed, kept monopolizing its priority band, and
+       every subsequent test starved behind it and timed out in turn (the
+       catalog-run timeout carpets: one slow ReleaseTest scan poisoned
+       everything after it).  Kill while testDone is still false: the main
+       loop keeps polling and cannot reach the cleanup path."
+      "Force-kill: suspend is a primitive (cannot block), terminate runs
+       unwind blocks which can themselves hang. Suspend first so the test
+       cannot execute another instruction, then fire-and-forget terminate
+       in a fresh fork so the watchdog never waits on a stuck unwind."
+      [testProcess suspend] on: Error do: [:e |].
+      [[testProcess terminate] on: Error do: [:e |]] fork.
       testDone := true.
       s nextPutAll: ''  TIMEOUT: ''; nextPutAll: sel;
         nextPutAll: '' (exceeded ''; print: effectiveWatchdog; nextPutAll: ''s)''; lf.
@@ -902,13 +919,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
         nextPutAll: '' wd=''; print: effectiveWatchdog; lf] on: Error do: [:e |
         s nextPutAll: ''    WD-CLOCK print failed: ''; nextPutAll: e class name; lf].
       s flush.
-      doneSem signal.
-      "Force-kill: suspend is a primitive (cannot block), terminate runs
-       unwind blocks which can themselves hang. Suspend first so the test
-       cannot execute another instruction, then fire-and-forget terminate
-       in a fresh fork so the watchdog never waits on a stuck unwind."
-      [testProcess suspend] on: Error do: [:e |].
-      [[testProcess terminate] on: Error do: [:e |]] fork]] forkAt: 60.
+      doneSem signal]] forkAt: 60.
   backupWatchdog := nil.
 
   "Wait for test completion. Poll testDone using relinquishProcessorForMicroseconds:
