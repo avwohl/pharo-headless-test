@@ -691,11 +691,15 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
        <expectedFailure> pragma AND the expectedFailures selector-list
        method (FL*/Cly* use the latter).  TestResult would classify their
        TestFailure as an expected failure, so the raw runCase path must
-       skip them the same way or they surface as bogus FAIL/ERROR."
-      isExpectedFailure := [((testClass >> sel) pragmas
-        anySatisfy: [:p | p selector = #expectedFailure])
-        or: [(testClass selector: sel) shouldPass not]]
-        on: Error do: [:e | false].
+       skip them the same way or they surface as bogus FAIL/ERROR.
+       SEPARATE protected blocks: `testClass >> sel` raises for selectors
+       inherited from a superclass (all the FL* cases), and a single
+       shared on:Error would abort before the shouldPass check runs."
+      isExpectedFailure := ([(testClass >> sel) pragmas
+        anySatisfy: [:p | p selector = #expectedFailure]]
+        on: Error do: [:e | false])
+        or: [[(testClass selector: sel) shouldPass not]
+          on: Error do: [:e | false]].
       isExpectedFailure ifTrue: [
         s nextPutAll: ''  RUN: ''; nextPutAll: sel; nextPutAll: '' (expectedFailure)''; lf. s flush.
         sk := sk + 1.
