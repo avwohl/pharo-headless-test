@@ -951,6 +951,25 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
 
   ^ result' classified: 'running'!
 
+"HARDENED watchDogLoop (2026-07-06, delay-ticker-death hunt): a desynced
+ watchdog wake can read maxTimeForTest as nil; passing nil into
+ waitTimeoutMilliseconds: builds a Delay whose nil duration kills the
+ DelayMicrosecondTicker (nil times 1000 raises; the loop passes the error;
+ ProcessMonitorTestService suspends the P80 ticker; every later timeout
+ stalls). Guard: on a nil limit, re-park on the semaphore."
+TestExecutionEnvironment compile: 'watchDogLoop
+	| timeIsGone waitMs |
+	[ watchDogSemaphore wait.
+	  [ waitMs := maxTimeForTest
+			ifNotNil: [ :mt | [ mt asMilliSeconds ] on: Error do: [ :e | nil ] ].
+	    timeIsGone := waitMs
+		ifNil: [ watchDogSemaphore wait. false ]
+		ifNotNil: [ watchDogSemaphore waitTimeoutMilliseconds: waitMs ].
+	    testCompleted ] whileFalse: [
+		timeIsGone ifTrue: [
+			mainTestProcess isSuspended ifFalse: [
+				mainTestProcess signalException: TestTookTooMuchTime new ] ] ] ] repeat' classified: 'running'!
+
 SUnitRunner class compile: 'startUp: resuming
   resuming ifFalse: [^ self].
   "Guard against auto-restart: if a previous run completed, don''t re-run on
