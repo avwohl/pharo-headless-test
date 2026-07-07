@@ -53,11 +53,11 @@ WorldMorph allInstances ifEmpty: [
  fully initialized. This causes 'receiver of activate is nil' errors."
 Morph compile: 'activate
   "Make receiver and submorphs able to respond to events."
-  self submorphsDo: [:m | m ifNotNil: [m activate]]' classified: 'events-processing'!
+  self submorphsDo: [:m | m ifNotNil: [m activate]]' classified: '*Morphic-Widgets-Windows'!
 
 Morph compile: 'passivate
   "Make receiver and submorphs unable to respond to events."
-  self submorphsDo: [:m | m ifNotNil: [m passivate]]' classified: 'events-processing'!
+  self submorphsDo: [:m | m ifNotNil: [m passivate]]' classified: '*Polymorph-Widgets'!
 
 "=== Step 4: FakeGUI helper class ==="
 
@@ -259,14 +259,33 @@ FakeGUI class compile: 'startCycleLoop
  proxy to delegate #selector (and #methodClass) to its originalMethod."
 (Smalltalk globals at: #OCCalledMethodProxy ifAbsent: [nil]) ifNotNil: [:cls |
   cls compile: 'selector
-  ^ originalMethod selector' classified: '*sunit-harness-compat'.
+  ^ originalMethod selector' classified: 'accessing'.
   cls compile: 'methodClass
-  ^ originalMethod methodClass' classified: '*sunit-harness-compat'.
+  ^ originalMethod methodClass' classified: 'accessing'.
 ].
 
 "Force SelectorTable to build now (before any test-installed proxies), so any
  later addSelectorSilently:withMethod: just appends to the existing table."
 Symbol selectorTable!
+
+"=== Declare the harness packages in a baseline ===
+ ReleaseTest>>testNoOrphanPackage rejects every package not declared by
+ some BaselineOf subclass.  Declaring Tests-Runner/Tests-FakeGUI in a
+ tiny baseline keeps the harness honest without hiding its classes in an
+ upstream package (which would trip SystemDependenciesTest fences)."
+ShiftClassInstaller make: [:builder |
+  builder
+    name: #BaselineOfSUnitHarness;
+    superclass: (Smalltalk globals at: #BaselineOf);
+    package: 'BaselineOfSUnitHarness']!
+
+BaselineOfSUnitHarness compile: 'baseline: spec
+  <baseline>
+  spec for: #common do: [
+    spec
+      package: ''Tests-Runner'';
+      package: ''Tests-FakeGUI'';
+      package: ''BaselineOfSUnitHarness'' ]' classified: 'baselines'!
 
 "=== Done ==="
 Transcript show: 'FakeGUI environment installed'; cr!

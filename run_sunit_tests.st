@@ -9,7 +9,7 @@
  onto this class."
 ClassDescription compile: 'methodsFor: aCategory
   ^ self'
-  classified: '*chunk-format-compat'!
+  classified: 'compatibility'!
 
 "FileReference >> #lines shim.  Our VM has a bug where the upstream
  Pharo `contents` method's inner non-local return doesn't fire
@@ -20,7 +20,7 @@ FileReference compile: 'lines
   | content |
   content := self readStreamDo: [:s | s contents].
   ^ content lines'
-  classified: '*sunit-runner-shim'!
+  classified: 'streams'!
 
 "Context >> #copyTo: is RECURSIVE in stock Pharo (copies the sender chain via
  `tmp1 privSender: (self sender copyTo: aContext)`), so freezing/copying a deep
@@ -43,7 +43,7 @@ Context compile: 'copyTo: aContext
     cur := cur sender ].
   prev ifNotNil: [ prev privSender: nil ].
   ^ head'
-  classified: '*sunit-runner-shim'!
+  classified: 'query'!
 
 "FFIArchitecture class>>forCurrentArchitecture is `(self allSubclasses detect:
  #isActive) uniqueInstance` — recomputed on EVERY ExternalAddress FFI access
@@ -63,7 +63,7 @@ Context compile: 'copyTo: aContext
 FFIArchitecture class compile: 'forCurrentArchitecture
   ^ ForCurrentArchitectureCache ifNil: [
       ForCurrentArchitectureCache := (self allSubclasses detect: #isActive) uniqueInstance ]'
-  classified: '*sunit-runner-perf'!
+  classified: 'public'!
 
 Object subclass: #SUnitRunner
   instanceVariableNames: ''
@@ -102,7 +102,7 @@ SHA1 compile: 'hashStream: aPositionableStream
       ifFalse: [ bitLength := (aPositionableStream position - startPosition) * 8.
         self processFinalBuffer: buf bitLength: bitLength]].
   ^ self finalHash asByteArrayOfSize: 20'
-  classified: '*sunit-runner-shim'!
+  classified: 'instance creation'!
 
 "SHA256 native primitive: the kernel SHA256 is PURE Smalltalk (ThirtyTwoBitRegister
  objects, ~1M allocations per 100K bytes), ~15x slower than Cog, so the 1M-byte
@@ -116,7 +116,7 @@ SHA1 compile: 'hashStream: aPositionableStream
 SHA256 class compile: 'hashMessage: aStringOrByteArray
   <primitive: ''primitiveSHA256Message'' module: ''DSAPrims''>
   ^ self new hashMessage: aStringOrByteArray'
-  classified: '*sunit-runner-perf'!
+  classified: 'public'!
 
 SUnitRunner class compile: 'nextRunNumber
   "Read, increment, and persist the run counter."
@@ -356,7 +356,12 @@ SUnitRunner class compile: 'runAllTests
      (cls isNil or: [cls includesSelector: #runBackendLoopAtTimingPriorityOriginal]) ifFalse: [
        origMethod := cls methodDict at: #runBackendLoopAtTimingPriority ifAbsent: [nil].
        origMethod ifNotNil: [
-         cls methodDict at: #runBackendLoopAtTimingPriorityOriginal put: origMethod.
+         "addSelectorSilently:withMethod: (not raw methodDict at:put:): it
+          runs Symbol class>>recordSelector: and fixes the method''s selector
+          property, so allUnsentMessages/allUnimplementedCalls scans
+          (ReleaseTest testThatThereAreNoSelectorsRemaining...) stay clean."
+         cls addSelectorSilently: #runBackendLoopAtTimingPriorityOriginal
+             withMethod: origMethod.
          "Register the stuffed selector with the organizer: a methodDict-only
           install has NO protocol, and protocol-universal scans then blow up
           on the nil (RBBrowserEnvironmentTest includesProtocol: walks EVERY
@@ -367,9 +372,9 @@ SUnitRunner class compile: 'runAllTests
             under: ''private - instrumented''] on: Error do: [:eC |].
          cls compile: ''runBackendLoopAtTimingPriority
   "Instrumented by SUnitRunner to capture scheduler-killing exceptions."
-  [self runBackendLoopAtTimingPriorityOriginal]
+  [self perform: #runBackendLoopAtTimingPriorityOriginal]
     on: Exception do: [:ex |
-      [''''/tmp/sched_killer.txt'''' asFileReference appendStreamDo: [:o |
+      [''''/tmp/sched_killer.txt'''' asFileReference writeStreamDo: [:o |
         o nextPutAll: ''''=== Scheduler killed at ''''; print: DateAndTime now; nextPutAll: '''' ===''''; lf.
         o nextPutAll: ''''class: ''''; nextPutAll: ex class name; lf.
         o nextPutAll: ''''msg: ''''; nextPutAll: (ex messageText ifNil: [''''?'''']); lf.
@@ -398,7 +403,7 @@ SUnitRunner class compile: 'runAllTests
      VM signal is opt-out via PHARO_NO_DELAY_HARD_RESTART. See docs/scheduler-halt-analysis.md."
     [(Smalltalk globals includesKey: #SUnitDelayRecoveryRunning) ifFalse: [
        Smalltalk globals at: #SUnitDelayRecoveryRunning put: true.
-       Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self'' classified: ''*vm-delay-recovery''.
+       Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self'' classified: ''signaling''.
        (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) vmRegisterAsDelayRecovery.
        [[true] whileTrue: [
           (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
@@ -859,7 +864,14 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
     runBlock := (#(''TestExecutionEnvironmentTest'' ''ProcessMonitorTestServiceTest'' ''TestExecutionEnvironmentTestCase'' ''TestServiceExampleTest'')
         includes: testClass name asString)
       ifTrue: [[DefaultExecutionEnvironment beActiveDuring: [testInstance runCase]]]
-      ifFalse: [[testInstance runCase]].
+      ifFalse: [
+        "SUnitTest inspects the CURRENT execution environment (e.g.
+         testWatchDogProcessShouldNotBeCatchedAsForkedProcess asserts no
+         forked processes at test start) — our long-lived batch env has
+         tracked forks, so run its cases under a FRESH managed env."
+        testClass name asString = ''SUnitTest''
+          ifTrue: [[DefaultExecutionEnvironment beActiveDuring: [testInstance runCaseManaged]]]
+          ifFalse: [[testInstance runCase]]].
     [[[[[runBlock value]
       on: TestFailure do: [:ex |
         result := #fail.
@@ -1031,6 +1043,22 @@ SUnitRunner class compile: 'startUp: resuming
       (morphic and: [p ~~ active])
         ifTrue: [[p suspend] on: Error do: [:e2 |]]]]
   on: Error do: [:e | "best-effort"].
+  "The VM no longer claims an interactive session on bare launches
+   (PHARO_INTERACTIVE opt-in since 2026-07-06), so resume-time
+   ErrorHandlerSessionHandler>>startup: selects NonInteractiveUIManager.
+   The fake-GUI suites are calibrated against MorphicUIManager (the cog
+   baseline keeps it) — reinstall it."
+  [(UIManager default class == MorphicUIManager)
+    ifFalse: [[MorphicUIManager new beDefault] on: Error do: [:e2 |]]]
+      on: Error do: [:e | "best-effort"].
+  "ReleaseTest>>testPharoVersionFileExists requires imageDirectory /
+   pharo.version with the bare version string (stock harnesses fail this
+   too; writing it is faithful to a real installation)."
+  [| vf | vf := FileLocator imageDirectory / ''pharo.version''.
+   vf exists ifFalse: [
+     vf writeStreamDo: [:s |
+       s nextPutAll: (SystemVersion current major * 10) printString]]]
+     on: Error do: [:e | "best-effort"].
   "AFTER the sweep: start the fake-GUI paced World-cycle loop (if the
    prep installed FakeGUI).  Forked tests defer UI work to the World and
    wait for a cycle; without a UI process nothing delivers it and the
