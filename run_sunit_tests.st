@@ -357,6 +357,14 @@ SUnitRunner class compile: 'runAllTests
        origMethod := cls methodDict at: #runBackendLoopAtTimingPriority ifAbsent: [nil].
        origMethod ifNotNil: [
          cls methodDict at: #runBackendLoopAtTimingPriorityOriginal put: origMethod.
+         "Register the stuffed selector with the organizer: a methodDict-only
+          install has NO protocol, and protocol-universal scans then blow up
+          on the nil (RBBrowserEnvironmentTest includesProtocol: walks EVERY
+          class/selector; nil name MNU — the catalog RB error family).
+          Pharo 13 API is ClassDescription>>classify:under: (organization
+          is gone from ClassDescription)."
+         [cls classify: #runBackendLoopAtTimingPriorityOriginal
+            under: ''private - instrumented''] on: Error do: [:eC |].
          cls compile: ''runBackendLoopAtTimingPriority
   "Instrumented by SUnitRunner to capture scheduler-killing exceptions."
   [self runBackendLoopAtTimingPriorityOriginal]
