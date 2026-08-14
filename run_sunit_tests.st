@@ -694,35 +694,30 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         nextPutAll: '' E:''; print: e; nextPutAll: '' S:''; print: sk;
         nextPutAll: '' T:''; print: t; lf; lf. s flush.
       ^ {p. f. e. sk. t}].
-    "Selector skip list — 2026-08-14 audit.
-     Every entry was re-tested on x86_64 Linux against jit @ ee2208de with the
-     list emptied, on a FRESHLY prepped image.  Seven of the nine came out:
-
-       testOneGBAllocation, testOneGWordAllocation   PASS (AllocationTest 4/4)
-           Both assert `failed or: [array size = sz]`, so a clean OutOfMemory
-           passes too — they only fail on a crash, hang or wrong-sized object.
-           Pharo itself skips them on Windows only.
-       testNthRootTruncated, testPrintStringBase     PASS
-           These carried the note \'still hang in harness — separate JIT
-           codegen bugs in their respective LargeInteger paths\'.  They no
-           longer hang.  IntegerTest 83: P:79 S:3 T:1, the one timeout being
-           testReciprocalModulo (env-watchdog), which is NOT on this list.
-       testSlowFactorial, testPrintingRecursive      PASS
-       testPrintStringAll                            DOES NOT EXIST
-           Zero implementors in a Pharo 13 image; a stale entry.
-
-     The stated reason for several of them — \'when they hang at P40, the
-     runner (also P40) can\'t preempt to fire the watchdog\' — was a real VM
-     defect, not a property of these tests: checkForPreemption scanned upward
-     and selected the LOWEST ready priority above the active one.  Fixed in
-     iospharo bbd10f57.
-
-     What is left is only the two inherited ClassTestCase lint rules.  They run
-     AST lint over every method in the hierarchy for each of ~640 test classes;
-     that is static analysis, not VM correctness.  Re-measure before assuming
-     they still cost what this comment claims."
-    (#(testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
-       testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass)
+    "Minimal skips: 1GB allocations (OOM) and inherited ClassTestCase lint tests
+     that run AST-parsing lint rules on every method in the class hierarchy.
+     These timeout on every test class (~640) at 10s each = 100+ min of dead waiting.
+     They''re static analysis checks, not VM correctness tests."
+    "2026-05-07: A1 +1 sp leak fix (commit 0bd8c501) plus reciprocalModulo:
+     JIT-exclude (commit ddc9485c) resurrected 6 tests from this skip list:
+       testTransformingDeprecation, testSlotScopeParallelism, testBenchFor,
+       testReciprocalModulo, testPositiveIntegerPrinting,
+       testNegativeIntegerPrinting.
+     All pass under default JIT in 4-6 seconds each.
+     testNthRootTruncated and testPrintStringBase still hang in harness —
+     separate JIT codegen bugs in their respective LargeInteger paths."
+    (#(testOneGBAllocation testOneGWordAllocation
+       testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
+       testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass
+       "IntegerTest: O(n^2) LargeInteger division/printing vs reference VM''s optimized C.
+        These take minutes even with scaled timeouts. When they hang at P40, the runner
+        (also P40) can''t preempt to fire the watchdog, so they must be skipped."
+       testPrintStringBase
+       testSlowFactorial testPrintStringAll
+       testNthRootTruncated
+       "ArrayTest>>testPrintingRecursive — recursive printString timeout in both
+        JIT and NO_JIT (slow O(n) test, not VM correctness)."
+       testPrintingRecursive)
       includes: sel) ifFalse: [
       | result isExpectedFailure |
       "Known-to-fail declarations honored by SUnit itself: the
