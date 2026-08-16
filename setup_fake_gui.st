@@ -248,6 +248,24 @@ FakeGUI class compile: 'startCycleLoop
             Smalltalk at: #FakeGUICycleCount put:
               (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ] on: Error do: [:e | ].
           (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
+  "Un-adopt the loop from SUnit''s process monitor.  Root cause of the loop
+   deaths, measured 2026-08-15 by hooking Process>>terminate and catching the
+   caller: ProcessMonitorTestService>>handleNewProcess: adds EVERY process
+   forked while a TestExecutionEnvironment is active to its forkedProcesses
+   WeakSet, and cleanUpAfterTest sends #terminate to all of them.  This loop is
+   forked from SUnitRunner (and re-forked by the revival between classes), i.e.
+   inside that scope, so the monitor cannot tell it from a process a test
+   leaked, and the next test case that ends kills it.
+   Removing just this one process from the set is deliberate: disabling the
+   sweep (shouldTerminateProcesses: false) would also stop genuinely leaked test
+   processes being reaped, which is isolation we want to keep."
+  [ | env |
+    env := CurrentExecutionEnvironment value.
+    (env respondsTo: #services) ifTrue: [
+      env services do: [:svc |
+        (svc respondsTo: #forkedProcesses) ifTrue: [
+          svc forkedProcesses remove: p ifAbsent: [ ]]]]
+  ] on: Error do: [:e | ].
   Smalltalk at: #FakeGUICycleLoop put: p.
   ^ p' classified: 'running'!
 
