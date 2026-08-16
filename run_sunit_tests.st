@@ -526,7 +526,23 @@ SUnitRunner class compile: 'runAllTests
       [ | lp |
         lp := Smalltalk at: #FakeGUICycleLoop ifAbsent: [nil].
         (lp isNil or: [lp isTerminated]) ifTrue: [
-          stream nextPutAll: ''CYCLE-LOOP-RESTART before ''; nextPutAll: tc name; lf.
+          stream nextPutAll: ''CYCLE-LOOP-RESTART before ''; nextPutAll: tc name.
+          "Record HOW it died, do not infer it.  Measured 2026-08-15: the
+           ProcessMonitorTestService terminate sweep is fixed (3 real
+           terminations -> 0) but one death per run survives, and two
+           successive guesses at its mechanism were both refuted by the run
+           that tested them.  isTerminated being true here already rules out
+           the suspend theory; what is still unseparated is terminated-by-
+           another-process versus the loop''''s own block returning normally
+           (which also ends a process, via terminateRealActive, with no
+           #terminate anywhere).  susp-ctx nil distinguishes them."
+          lp ifNotNil: [
+            stream nextPutAll: '' [state term=''; print: lp isTerminated;
+              nextPutAll: '' susp=''; print: lp isSuspended;
+              nextPutAll: '' ctxNil=''; print: lp suspendedContext isNil;
+              nextPutAll: '' cycles=''; print: (Smalltalk at: #FakeGUICycleCount ifAbsent: [-1]);
+              nextPutAll: '']''].
+          stream lf.
           stream flush.
           (Smalltalk at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg | fg startCycleLoop]]]
         on: Error do: [:e | ].
