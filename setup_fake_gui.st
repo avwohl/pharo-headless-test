@@ -244,10 +244,20 @@ FakeGUI class compile: 'startCycleLoop
   (Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [nil]) ifNotNil: [:old |
     [old terminate] on: Error do: [:e | ]].
   Smalltalk at: #FakeGUICycleCount put: 0.
-  p := [[ [ MorphicRenderLoop new doOneCycle.
+  "PHASE MARKER, diagnostic only — no behaviour change.
+   Five hypotheses for the one surviving death have now been tested and
+   refuted at ~55 min a run (suspend, Process>>terminate, escaping exception,
+   fork-outside, widened guard).  Stop guessing mechanisms: record which
+   STATEMENT the loop last entered, so the phase left behind at the death names
+   the thing it never returned from.  FakeGUICyclePhase is read by the runner''s
+   restart line alongside term/susp/ctxNil."
+  p := [[ Smalltalk at: #FakeGUICyclePhase put: #cycle.
+          [ MorphicRenderLoop new doOneCycle.
             Smalltalk at: #FakeGUICycleCount put:
               (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ] on: Error do: [:e | ].
-          (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
+          Smalltalk at: #FakeGUICyclePhase put: #delay.
+          (Delay forMilliseconds: 25) wait.
+          Smalltalk at: #FakeGUICyclePhase put: #looped ] repeat] forkAt: 40.
   "Un-adopt the loop from SUnit''s process monitor.  Root cause of the loop
    deaths, measured 2026-08-15 by hooking Process>>terminate and catching the
    caller: ProcessMonitorTestService>>handleNewProcess: adds EVERY process

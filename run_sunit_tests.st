@@ -541,6 +541,7 @@ SUnitRunner class compile: 'runAllTests
               nextPutAll: '' susp=''; print: lp isSuspended;
               nextPutAll: '' ctxNil=''; print: lp suspendedContext isNil;
               nextPutAll: '' cycles=''; print: (Smalltalk at: #FakeGUICycleCount ifAbsent: [-1]);
+              nextPutAll: '' phase=''; print: (Smalltalk at: #FakeGUICyclePhase ifAbsent: [#none]);
               nextPutAll: '']''].
           stream lf.
           stream flush.
