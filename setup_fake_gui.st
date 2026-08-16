@@ -243,7 +243,10 @@ FakeGUI class compile: 'startCycleLoop
    startup sweep sees its Morphic frames) — terminate it and fork fresh."
   (Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [nil]) ifNotNil: [:old |
     [old terminate] on: Error do: [:e | ]].
-  p := [[ [ MorphicRenderLoop new doOneCycle ] on: Error do: [:e | ].
+  Smalltalk at: #FakeGUICycleCount put: 0.
+  p := [[ [ MorphicRenderLoop new doOneCycle.
+            Smalltalk at: #FakeGUICycleCount put:
+              (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ] on: Error do: [:e | ].
           (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
   Smalltalk at: #FakeGUICycleLoop put: p.
   ^ p' classified: 'running'!

@@ -507,6 +507,29 @@ SUnitRunner class compile: 'runAllTests
         stream nextPutAll: ''*** BATCH DEADLINE REACHED at ''; print: DateAndTime now;
           nextPutAll: '' — skipping remaining classes''; lf. stream flush].
       batchAborted ifFalse: [
+      "Report World-cycle PROGRESS, not merely loop liveness.  An earlier round
+       concluded the loop was innocent because it was never terminated, but that
+       tests existence rather than progress: a loop alive yet never completing a
+       doOneCycle gives exactly the empty-submorph symptom."
+      "Revive the fake-GUI World-cycle loop if a test has killed it.
+       Morph and Sp*-adapter tests defer UI work to the World and block for a
+       cycle; with the loop dead they read back empty submorphs and error with
+       an out-of-bounds first.
+       Measured 2026-08-15 over an 896-class run, sampling the loop process per
+       class: 743 classes saw it healthy (parked in [delaySemaphore wait] in
+       Delay>>wait, its 25ms pace), then it was TERMINATED between
+       CoCompletionEngineTest and CoFetcherWithNoResultsTest and stayed dead for
+       the remaining 143 classes -- including all nine Sp*/FT* adapter classes
+       that error. The cycle counter froze at 16600 from that point on.
+       Reviving it per class is the harness maintaining its own infrastructure,
+       and the restart is reported so a loop-killing test stays visible."
+      [ | lp |
+        lp := Smalltalk at: #FakeGUICycleLoop ifAbsent: [nil].
+        (lp isNil or: [lp isTerminated]) ifTrue: [
+          stream nextPutAll: ''CYCLE-LOOP-RESTART before ''; nextPutAll: tc name; lf.
+          stream flush.
+          (Smalltalk at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg | fg startCycleLoop]]]
+        on: Error do: [:e | ].
       [counts := self runTestClass: tc run: runNum on: stream detail: detail timeout: watchdogTimeout deadline: batchDeadline.
       totalP := totalP + (counts at: 1).
       totalF := totalF + (counts at: 2).
