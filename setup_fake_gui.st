@@ -244,10 +244,22 @@ FakeGUI class compile: 'startCycleLoop
   (Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [nil]) ifNotNil: [:old |
     [old terminate] on: Error do: [:e | ]].
   Smalltalk at: #FakeGUICycleCount put: 0.
+  "Guard EVERY iteration against ANY exception, the delay included.
+   Measured 2026-08-15: at the one surviving death the loop process is
+   term=true susp=false ctxNil=false, with no Process>>terminate call anywhere
+   — i.e. it ended by its own stack unwinding, so something PROPAGATED OUT of
+   the repeat.  The old shape guarded only doOneCycle, and only against Error:
+   an exception from `(Delay ...) wait`, or any non-Error Exception (Halt,
+   Warning, a Notification) from the cycle, escaped and ended the process.
+   The two guards are separate so the 25ms pacing delay still runs when a cycle
+   raises — one combined guard would skip the delay on every failing iteration
+   and spin hot."
   p := [[ [ MorphicRenderLoop new doOneCycle.
             Smalltalk at: #FakeGUICycleCount put:
-              (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ] on: Error do: [:e | ].
-          (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
+              (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ]
+              on: Exception do: [:e | e return: nil].
+          [ (Delay forMilliseconds: 25) wait ]
+              on: Exception do: [:e | e return: nil] ] repeat] forkAt: 40.
   "Un-adopt the loop from SUnit''s process monitor.  Root cause of the loop
    deaths, measured 2026-08-15 by hooking Process>>terminate and catching the
    caller: ProcessMonitorTestService>>handleNewProcess: adds EVERY process
