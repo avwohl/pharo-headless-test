@@ -222,6 +222,33 @@ FakeGUI class compile: 'screenshotOf: aMorph toFile: aFilePath
   form writePNGFileNamed: aFilePath.
   ^ aFilePath' classified: 'screenshots'!
 
+"Fork a process the SUnit test monitor never sees.
+
+ Measured 2026-08-15: removing the loop from ProcessMonitorTestService''s
+ forkedProcesses set killed every #terminate-driven death (3 -> 0) but the loop
+ STILL died once per run, through a path with no #terminate in it.  The reason
+ is that handleNewProcess: does TWO things and un-adopting only undid one:
+
+     handleNewProcess: aProcess
+         forkedProcesses add: aProcess.                  <- un-adopt undid this
+         aProcess on: UnhandledException do: [ :err |    <- this SURVIVES
+             self handleBackgroundException: err]
+
+ That handler is installed on the process itself, so it outlives removal from
+ the set, and its path ends in suspendBackgroundFailure: doing `suspend` — a
+ death with no terminate, which is exactly what the terminate hook could not
+ see.  Forking with the DEFAULT environment active means handleNewProcess: is
+ never called for this process at all, so neither half applies."
+BlockClosure compile: 'forkedOutsideTestEnvironmentAt: priority
+  "Fork at priority with the default execution environment active, so SUnit''''s
+   ProcessMonitorTestService never adopts the new process."
+  "beActiveDuring: does NOT answer its block''''s value — it answers the
+   environment — so the process is captured in an explicit temp."
+  | proc |
+  [ DefaultExecutionEnvironment beActiveDuring: [ proc := self forkAt: priority ] ]
+     on: Error do: [:e | proc := nil ].
+  ^ proc ifNil: [ self forkAt: priority ]' classified: 'scheduling'!
+
 FakeGUI class compile: 'startCycleLoop
   "Fork a Delay-paced World-cycle loop so deferred UI work actually runs.
 
@@ -247,8 +274,9 @@ FakeGUI class compile: 'startCycleLoop
   p := [[ [ MorphicRenderLoop new doOneCycle.
             Smalltalk at: #FakeGUICycleCount put:
               (Smalltalk at: #FakeGUICycleCount ifAbsent: [0]) + 1 ] on: Error do: [:e | ].
-          (Delay forMilliseconds: 25) wait ] repeat] forkAt: 40.
-  "Un-adopt the loop from SUnit''s process monitor.  Root cause of the loop
+          (Delay forMilliseconds: 25) wait ] repeat]
+            forkedOutsideTestEnvironmentAt: 40.
+  "Belt and braces — un-adopt the loop from SUnit''s process monitor.  Root cause of the loop
    deaths, measured 2026-08-15 by hooking Process>>terminate and catching the
    caller: ProcessMonitorTestService>>handleNewProcess: adds EVERY process
    forked while a TestExecutionEnvironment is active to its forkedProcesses
