@@ -451,7 +451,11 @@ SUnitRunner class compile: 'runAllTests
     [(Smalltalk globals includesKey: #SUnitDelayRecoveryRunning) ifFalse: [
        Smalltalk globals at: #SUnitDelayRecoveryRunning put: true.
        Semaphore compile: ''vmRegisterAsDelayRecovery <primitive: ''''primitiveRegisterDelayRecoverySemaphore'''' module: ''''VMCore''''> ^ self'' classified: ''signaling''.
-       (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) vmRegisterAsDelayRecovery.
+       "perform: -- this method is COMPILED one line above, so a literal send
+        would name a selector no image implements until then, which
+        ReleaseTest>>testThatThereAreNoSelectorsRemainingThatAreSentButNot
+        Implemented flags against the runner itself."
+       (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) perform: #vmRegisterAsDelayRecovery.
        [[true] whileTrue: [
           (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
           [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
@@ -572,7 +576,8 @@ SUnitRunner class compile: 'runAllTests
               nextPutAll: '']''].
           stream lf.
           stream flush.
-          (Smalltalk at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg | fg startCycleLoop]]]
+          "perform: -- FakeGUI exists only when setup_fake_gui.st was filed in."
+          (Smalltalk at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg | fg perform: #startCycleLoop]]]
         on: Error do: [:e | ].
       [counts := self runTestClass: tc run: runNum on: stream detail: detail timeout: watchdogTimeout deadline: batchDeadline.
       totalP := totalP + (counts at: 1).
@@ -1161,7 +1166,7 @@ SUnitRunner class compile: 'startUp: resuming
    Morph/Sp*-adapter tests read back empty widgets.  Started post-sweep
    so the sweep can never suspend it."
   [(Smalltalk globals at: #FakeGUI ifAbsent: [nil])
-    ifNotNil: [:fg | fg startCycleLoop]] on: Error do: [:e | "best-effort"].
+    ifNotNil: [:fg | fg perform: #startCycleLoop]] on: Error do: [:e | "best-effort"].
   self runAllTests' classified: 'startup'!
 
 SUnitRunner class compile: 'shutDown: quitting' classified: 'startup'!
