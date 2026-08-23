@@ -90,6 +90,33 @@ Object subclass: #SUnitRunner
   classVariableNames: ''
   package: 'Tests-Runner'!
 
+"Declare 'Tests-Runner' in a baseline, or the runner fails a test it is only
+ present to RUN.  ReleaseTest>>testNoOrphanPackage asserts every package in the
+ organizer is declared by some BaselineOf:
+
+     self assertEmpty: (self packageOrganizer packages reject: [ :package |
+         package isUndefined or: [ declaredPackages includes: package name ] ])
+
+ and its own comment says it exists to catch 'generated packages that are not
+ removed by the #tearDowns'.  Injecting SUnitRunner into an undeclared package
+ is exactly that, so the harness was scoring a FAIL against itself on both
+ architectures (2026-08-23).
+
+ Note the builder must be INSTALLed: (BaselineOf << #X) package: 'X' answers a
+ ShiftClassBuilder and installs nothing on its own -- two earlier attempts here
+ failed silently that way, and `BaselineOf subclass:instanceVariableNames:...`
+ is not understood by BaselineOf class at all.
+
+ Wrapped so that an image whose API differs degrades to the old FAIL rather
+ than breaking the whole runner."
+[ ((BaselineOf << #BaselineOfTestsRunner) package: 'BaselineOfTestsRunner') install.
+  (Smalltalk at: #BaselineOfTestsRunner)
+      compile: 'baseline: spec
+	<baseline>
+	spec for: #common do: [ spec package: ''Tests-Runner'' ]'
+      classified: 'baselines' ]
+  on: Error do: [ :e | ]!
+
 "UndefinedObject >> findNextHandlerContext terminates the handler context chain.
  Context >> findNextHandlerContext calls sender findNextHandlerContext; when sender
  is nil, UndefinedObject needs this method to return nil (no more handlers) instead
