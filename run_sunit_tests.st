@@ -757,7 +757,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
     sels := sels select: [:sel | wanted includes: sel asString].
     s nextPutAll: ''  METHOD-FILTER: ''; print: sels size; nextPutAll: '' selected''; lf. s flush].
 
-  sels do: [:sel |
+  sels do: [:sel | | result isExpectedFailure |
     "Hard deadline short-circuit inside the selector loop."
     DateAndTime now >= batchDeadline ifTrue: [
       s nextPutAll: ''  BAIL: batch deadline reached mid-class''; lf.
@@ -766,41 +766,19 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         nextPutAll: '' E:''; print: e; nextPutAll: '' S:''; print: sk;
         nextPutAll: '' T:''; print: t; lf; lf. s flush.
       ^ {p. f. e. sk. t}].
-    "Selector skip list, audited 2026-08-14.  Every entry was re-tested on
-     x86_64 Linux against iospharo jit @ ee2208de with this list emptied, on a
-     freshly prepped image.  Seven of the nine came out:
-
-       testOneGBAllocation, testOneGWordAllocation   PASS (AllocationTest 4/4)
-           Both assert failed or: [array size = sz], so a clean OutOfMemory
-           passes too; they only fail on a crash, hang or wrong-sized object.
-           Pharo itself skips them on Windows alone.
-       testNthRootTruncated, testPrintStringBase     PASS
-           These carried a note claiming they still hang in harness as
-           separate JIT codegen bugs in their LargeInteger paths.  They do
-           not hang.  IntegerTest 83: P:79 S:3 T:1, the one timeout being
-           testReciprocalModulo (env-watchdog), which is not on this list.
-       testSlowFactorial, testPrintingRecursive      PASS
-       testPrintStringAll                            DOES NOT EXIST
-           Zero implementors in a Pharo 13 image.
-
-     The reason recorded for several of them, that when they hang at P40 the
-     runner (also P40) cannot preempt to fire the watchdog, was a VM defect
-     rather than a property of these tests: checkForPreemption scanned upward
-     and selected the LOWEST ready priority above the active one.  Fixed in
-     iospharo bbd10f57.
-
-     Note this list omits silently: a skipped selector is not counted in S,
-     so it never appears in any report.  AllocationTest read Total: 4 P:2
-     with the two gigabyte tests skipped.
-
-     What remains is the two inherited ClassTestCase lint rules, which run AST
-     lint over every method in the hierarchy for each of ~640 test classes.
-     Static analysis, not VM correctness.  Re-measure before assuming they
-     still cost what earlier comments claimed."
-    (#(testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses
-       testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass)
-      includes: sel) ifFalse: [
-      | result isExpectedFailure |
+    "Selector skip list: EMPTY since 2026-08-23.  Its last two entries were the
+     inherited ClassTestCase AST-lint rules
+     (testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses and
+     testTraitExplicitRequirementMethodsMustBeImplementedInTheClassOrInASuperclass),
+     held back on a cost argument that did not survive measurement: only 50
+     classes inherit ClassTestCase, not the ~640 assumed, and both selectors
+     across all 50 are 100 tests, 100 PASS, 6473 ms.  They were also omitted
+     SILENTLY -- a skipped selector was never counted in S -- so they appeared
+     in no report.  The audit of 2026-08-14 had already removed the other
+     seven (AllocationTest gigabyte tests, IntegerTest LargeInteger cases,
+     testSlowFactorial, testPrintingRecursive, a non-existent selector); see
+     git history for that write-up.  If a selector must ever be excluded
+     again, count it in S so it shows in the totals."
       "Known-to-fail declarations honored by SUnit itself: the
        <expectedFailure> pragma AND the expectedFailures selector-list
        method (FL*/Cly* use the latter).  TestResult would classify their
@@ -866,7 +844,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
             nextPutAll: '' P:''; print: p; nextPutAll: '' F:''; print: f;
             nextPutAll: '' E:''; print: e; nextPutAll: '' S:''; print: sk;
             nextPutAll: '' T:''; print: t; lf; lf. s flush.
-          ^ {p. f. e. sk. t}]]]]].
+          ^ {p. f. e. sk. t}]]]].
 
   "Check if Delay scheduler is alive after this class"
   [| sem alive startMs elapsed |
