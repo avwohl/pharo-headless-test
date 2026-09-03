@@ -932,7 +932,23 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    JIT is off, 1x when on.  Override with SUnitTimeoutMultiplier global."
   noJIT := [(OSEnvironment current at: ''PHARO_NO_JIT'' ifAbsent: [nil]) notNil]
              on: Error do: [:e | false].
-  mult := Smalltalk globals at: #SUnitTimeoutMultiplier ifAbsent: [noJIT ifTrue: [10] ifFalse: [1]].
+  "Multiplier order: the SUnitTimeoutMultiplier global if the image sets one,
+   else the SUNIT_TIMEOUT_MULT environment variable, else 10x with the JIT off
+   and 1x with it on.  The env var exists for the x86_64 sweep: that build runs
+   under Rosetta at roughly half arm64''s speed, and a fixed 80 s per-test bound
+   turns that into TIMEOUTs that read as test failures.  Measured 2026-09-02 --
+   every class non-clean on x86_64 and clean on arm64 in the same sweep was a
+   timeout or a wall-clock assertion (IntegerTest, STONWritePrettyPrinterReadTest,
+   SpTreePresenterExpandTest TIMEOUT; RSSequentialAnimationTest ''Time up'';
+   SpJobListPresenterTest ''Got 68 instead of 100''), not a codegen difference.
+   scripts/package-tests-selfhosted.sh already documents the same 2x rule."
+  mult := Smalltalk globals at: #SUnitTimeoutMultiplier ifAbsent: [
+            | envMult |
+            envMult := [ (OSEnvironment current at: ''SUNIT_TIMEOUT_MULT'' ifAbsent: [ nil ])
+                           ifNil: [ nil ]
+                           ifNotNil: [ :v | v asInteger ] ]
+                         on: Error do: [ :e | nil ].
+            envMult ifNil: [ noJIT ifTrue: [10] ifFalse: [1] ] ifNotNil: [ :m | m max: 1 ] ].
   effectiveWatchdog := (seconds * mult) min: maxPerTest.
   hardWait := (seconds * 2 * mult) min: maxPerTest.
 
