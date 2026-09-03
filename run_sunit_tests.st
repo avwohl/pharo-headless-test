@@ -988,7 +988,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    primitive that always wakes after the timeout, independent of Delay.
    At P60 this preempts P40 test processes each wake-up."
   watchdog := [
-    | deadline |
+    | deadline verdict |
     deadline := DateAndTime now + (Duration seconds: effectiveWatchdog).
     [testDone not and: [DateAndTime now < deadline]] whileTrue: [
       ProcessorScheduler relinquishProcessorForMicroseconds: 100000 "100ms"].
@@ -1011,17 +1011,41 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
        in a fresh fork so the watchdog never waits on a stuck unwind."
       [testProcess suspend] on: Error do: [:e |].
       [[testProcess terminate] on: Error do: [:e |]] fork.
-      testDone := true.
-      s nextPutAll: ''  TIMEOUT: ''; nextPutAll: sel;
+      "PRINT THE VERDICT BEFORE PUBLISHING testDone (2026-09-02).  The kill
+       above has already happened, so the orphan race described just above
+       cannot come back -- but setting testDone here let the P80 runner main
+       wake out of its poll loop and write this class''s ''Total:'' summary
+       line INTO the middle of the verdict this P60 watchdog was still
+       writing:
+
+         TIMEOUT: testVersionFromFileNamed (exceeded 80s)
+           WD-CLOCK now=Total: 1 P:0 F:0 E:0 S:0 T:1
+
+       Two classes in the 2026-09-02 arm64 sweep lost their Total: line that
+       way (MCSmalltalkhubRepositoryTest, TKTWorkerPoolTest), and every
+       offline aggregator anchored on ^Total: silently dropped them from the
+       class count.  While testDone is still false the main loop can only
+       poll, so writing the whole verdict first is an ordering guarantee,
+       not a narrowed window.  If the printing itself wedges, the main
+       loop''s hardWait deadline (2x watchdog) still fires the
+       TIMEOUT(prim-stuck) path below."
+      "Compose off-stream, publish in one write.  DateAndTime now printString
+       allocates, so it is exactly where the round-robin heartbeat lands, and
+       a partially written line on the shared results stream is unrecoverable
+       once the main loop suspends this watchdog."
+      verdict := String new writeStream.
+      verdict nextPutAll: ''  TIMEOUT: ''; nextPutAll: sel;
         nextPutAll: '' (exceeded ''; print: effectiveWatchdog; nextPutAll: ''s)''; lf.
       "Corruption forensics (2026-06-11): if the deadline or clock is a
        corrupted value, the verdict is spurious — print both so the VM-side
        silent-value-corruption hunt can see the shape."
-      [s nextPutAll: ''    WD-CLOCK now=''; nextPutAll: DateAndTime now printString;
+      [verdict nextPutAll: ''    WD-CLOCK now=''; nextPutAll: DateAndTime now printString;
         nextPutAll: '' deadline=''; nextPutAll: deadline printString;
         nextPutAll: '' wd=''; print: effectiveWatchdog; lf] on: Error do: [:e |
-        s nextPutAll: ''    WD-CLOCK print failed: ''; nextPutAll: e class name; lf].
+        verdict nextPutAll: ''    WD-CLOCK print failed: ''; nextPutAll: e class name; lf].
+      s nextPutAll: verdict contents.
       s flush.
+      testDone := true.
       doneSem signal]] forkAt: 60.
   backupWatchdog := nil.
 
