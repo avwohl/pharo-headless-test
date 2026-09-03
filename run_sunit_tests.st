@@ -633,8 +633,19 @@ SUnitRunner class compile: 'runAllTests
     on: Error do: [:e |]]
   ensure: [stream close. detail close].
   "exitSuccess goes through SessionManager shutdown which may not reach primitiveQuit.
-   Call quitPrimitive directly to ensure the VM terminates."
+   Call quitPrimitive directly to ensure the VM terminates.
+
+   LANDMARKS (2026-09-02).  Batch 1801-1850 -- the threaded-FFI block -- reaches
+   ''=== BATCH COMPLETE ==='' and then never exits, on BOTH arches, and the
+   harness kills it at PER_BATCH_TIMEOUT=1800s.  That is 30 minutes of every
+   sweep (defect #26 in docs/vm-compat-bugs.md).  Since the results stream is
+   already closed by the ensure: above, there was nothing in any log to say
+   whether it hangs inside exitSuccess or inside quitPrimitive.  These two
+   lines go to stderr, which the sweep captures per batch, so the next run
+   answers it."
+  Smalltalk stderr nextPutAll: ''[RUNNER] calling exitSuccess''; lf; flush.
   [Smalltalk exitSuccess] on: Error do: [:e |].
+  Smalltalk stderr nextPutAll: ''[RUNNER] exitSuccess returned; calling quitPrimitive''; lf; flush.
   Smalltalk quitPrimitive' classified: 'running'!
 
 SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
