@@ -946,17 +946,20 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
      denominator every recorded sweep used.  Running the full matrix is a
      separate change and needs the report format to disambiguate two lines
      with the same selector.  Falls back to the old construction on any error."
-    testInstance := [ | cache byClass |
-        cache := Smalltalk globals at: #SUnitRunnerSuiteCache ifAbsent: [ nil ].
-        cache ifNil: [ cache := IdentityDictionary new.
-                       Smalltalk globals at: #SUnitRunnerSuiteCache put: cache ].
-        byClass := cache at: testClass ifAbsentPut: [
-            | d |
-            d := IdentityDictionary new.
-            testClass suite tests do: [ :t |
-                d at: t selector ifAbsentPut: [ t ] ].
-            d ].
-        byClass at: sel asSymbol ifAbsent: [ testClass selector: sel ] ]
+    testInstance := [ | paramClass |
+        paramClass := Smalltalk globals at: #ParametrizedTestCase ifAbsent: [ nil ].
+        (paramClass notNil and: [ testClass inheritsFrom: paramClass ])
+          ifFalse: [ testClass selector: sel ]   "cheap and correct; 1806 of 2047 classes"
+          ifTrue: [ | cache byClass |
+            cache := Smalltalk globals at: #SUnitRunnerSuiteCache ifAbsent: [ nil ].
+            cache ifNil: [ cache := IdentityDictionary new.
+                           Smalltalk globals at: #SUnitRunnerSuiteCache put: cache ].
+            byClass := cache at: testClass ifAbsentPut: [
+                | d |
+                d := IdentityDictionary new.
+                testClass suite tests do: [ :t | d at: t selector ifAbsentPut: [ t ] ].
+                d ].
+            byClass at: sel asSymbol ifAbsent: [ testClass selector: sel ] ] ]
       on: Error do: [ :e | testClass selector: sel ].
     "Set testCase on TestExecutionEnvironment so EpMonitor can query shouldLogWithEpicea"
     [CurrentExecutionEnvironment value instVarNamed: ''testCase'' put: testInstance] on: Error do: [:e2 |].
