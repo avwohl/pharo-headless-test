@@ -18,17 +18,28 @@
  the same senders on both VMs.
 
  Caller: stage scripts/pharo-headless-test/test_classes.txt to
- /tmp/sunit_test_classes.txt first, then invoke stock Pharo with
+ <prefix>_test_classes.txt first, then invoke stock Pharo with
  `eval ''...run_sunit_cog.st...'' asFileReference fileIn` (without
- --save — this script writes results and calls exitSuccess itself)."
+ --save — this script writes results and calls exitSuccess itself).
 
-| classFile classNames stream detail totalP totalF totalE totalS totalT totalClasses perTestTimeout |
-classFile := '/tmp/sunit_test_classes.txt' asFileReference.
+ PATH PREFIX (2026-09-02).  Every path below comes from the SUNIT_PREFIX
+ environment variable, defaulting to the historical '/tmp/sunit'.  The two
+ runners used to share these fixed paths with no namespacing, so a Cog run
+ started while a custom-VM sweep was in flight silently corrupted it — the
+ results file is append-shared and /tmp/sunit_run_completed.txt makes the
+ next batch skip itself entirely.  Set SUNIT_PREFIX=/tmp/cogsunit (say) and
+ the two can run side by side."
+
+| prefix classFile classNames stream detail totalP totalF totalE totalS totalT totalClasses perTestTimeout |
+prefix := (Smalltalk os environment at: 'SUNIT_PREFIX' ifAbsent: [ nil ])
+  ifNil: [ '/tmp/sunit' ]
+  ifNotNil: [ :v | v trimBoth isEmpty ifTrue: [ '/tmp/sunit' ] ifFalse: [ v trimBoth ] ].
+classFile := (prefix , '_test_classes.txt') asFileReference.
 classNames := (classFile contents lines collect: [:s | s trimBoth])
   reject: [:s | s isEmpty].
 
-stream := '/tmp/sunit_test_results.txt' asFileReference writeStream.
-detail := '/tmp/sunit_test_detail.txt' asFileReference writeStream.
+stream := (prefix , '_test_results.txt') asFileReference writeStream.
+detail := (prefix , '_test_detail.txt') asFileReference writeStream.
 totalP := 0. totalF := 0. totalE := 0. totalS := 0. totalT := 0.
 totalClasses := 0.
 perTestTimeout := 50 seconds.
@@ -122,7 +133,7 @@ stream nextPut: Character lf.
 stream nextPutAll: '=== BATCH COMPLETE ==='; nextPut: Character lf.
 stream close. detail close.
 
-'/tmp/sunit_run_completed.txt' asFileReference writeStreamDo: [:ws |
+(prefix , '_run_completed.txt') asFileReference writeStreamDo: [:ws |
   ws nextPutAll: 'Stock Cog run completed at '; nextPutAll: DateAndTime now printString].
 
 Smalltalk exitSuccess
