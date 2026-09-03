@@ -928,7 +928,36 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
   "Fork test at requested priority"
   testProcess := [
     | testInstance runBlock |
-    testInstance := testClass selector: sel.
+    "PARAMETERISED TESTS (2026-09-02).  `testClass selector: sel` builds an
+     UNCONFIGURED instance, which is wrong for anything under
+     ParametrizedTestCase: Spec''s adapter tests take their backend from
+     `testParameters` (forSelector: #backendForTest addOptions:
+     SpAbstractBackendForTest allSubclasses), so an instance built this way has
+     no backend and the adapter indexes into an empty collection.  That is
+     where the sweeps'' `SubscriptOutOfBounds: 1 in #()` in nine Sp* classes
+     came from -- measured 2026-09-02: headless stock Cog runs all nine
+     0 F / 0 E, and each has a suite exactly twice its selector count while we
+     ran exactly half of what Cog ran.  See docs/vm-compat-bugs.md #24.
+
+     Take the instance the class''s own suite built, which carries the
+     parameters.  Cached per class, because building the suite is O(cases) and
+     this runs once per selector.  NOTE this still runs ONE case per selector,
+     not the whole matrix -- it fixes the configuration without changing the
+     denominator every recorded sweep used.  Running the full matrix is a
+     separate change and needs the report format to disambiguate two lines
+     with the same selector.  Falls back to the old construction on any error."
+    testInstance := [ | cache byClass |
+        cache := Smalltalk globals at: #SUnitRunnerSuiteCache ifAbsent: [ nil ].
+        cache ifNil: [ cache := IdentityDictionary new.
+                       Smalltalk globals at: #SUnitRunnerSuiteCache put: cache ].
+        byClass := cache at: testClass ifAbsentPut: [
+            | d |
+            d := IdentityDictionary new.
+            testClass suite tests do: [ :t |
+                d at: t selector ifAbsentPut: [ t ] ].
+            d ].
+        byClass at: sel asSymbol ifAbsent: [ testClass selector: sel ] ]
+      on: Error do: [ :e | testClass selector: sel ].
     "Set testCase on TestExecutionEnvironment so EpMonitor can query shouldLogWithEpicea"
     [CurrentExecutionEnvironment value instVarNamed: ''testCase'' put: testInstance] on: Error do: [:e2 |].
     "Framework-self-tests (TestExecutionEnvironment / ProcessMonitorTestService)
