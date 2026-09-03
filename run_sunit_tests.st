@@ -1020,8 +1020,9 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
        unwind blocks which can themselves hang. Suspend first so the test
        cannot execute another instruction, then fire-and-forget terminate
        in a fresh fork so the watchdog never waits on a stuck unwind."
-      [testProcess suspend] on: Error do: [:e |].
-      [[testProcess terminate] on: Error do: [:e |]] fork.
+      testProcess ifNotNil: [ :tp |
+        [tp suspend] on: Error do: [:e |].
+        [[tp terminate] on: Error do: [:e |]] fork ].
       "PRINT THE VERDICT BEFORE PUBLISHING testDone (2026-09-02).  The kill
        above has already happened, so the orphan race described just above
        cannot come back -- but setting testDone here let the P80 runner main
@@ -1074,22 +1075,32 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
      testDone := true.
      s nextPutAll: ''  TIMEOUT(prim-stuck): ''; nextPutAll: sel; lf. s flush.
      "Force-kill: primitive suspend cannot block; terminate is fire-and-forget."
-     [testProcess suspend] on: Error do: [:e |].
-     [watchdog suspend] on: Error do: [:e |].
-     [[testProcess terminate] on: Error do: [:e |]] fork.
-     [[watchdog terminate] on: Error do: [:e |]] fork]]
+     testProcess ifNotNil: [ :tp |
+       [tp suspend] on: Error do: [:e |].
+       [[tp terminate] on: Error do: [:e |]] fork ].
+     watchdog ifNotNil: [ :wd |
+       [wd suspend] on: Error do: [:e |].
+       [[wd terminate] on: Error do: [:e |]] fork ]]]
   on: Error do: [:ex |
     ex class name = ''TestTookTooMuchTime''
       ifTrue: [
         result ifNil: [result := #timeout].
         s nextPutAll: ''  TIMEOUT(env-watchdog): ''; nextPutAll: sel; lf. s flush.
-        [testProcess suspend] on: Error do: [:e2 |].
-        [[testProcess terminate] on: Error do: [:e2 |]] fork]
+        testProcess ifNotNil: [ :tp |
+          [tp suspend] on: Error do: [:e2 |].
+          [[tp terminate] on: Error do: [:e2 |]] fork ]]
       ifFalse: [ex pass]].
 
   "Clean up watchdogs if test completed before timeout"
-  [watchdog suspend] on: Error do: [:e |].
-  [backupWatchdog suspend] on: Error do: [:e |].
+  "ifNotNil: rather than on: Error (2026-09-02).  backupWatchdog is assigned
+   nil immediately after the watchdog fork and never set again, so this second
+   line sent #suspend to nil ONCE PER TEST -- 60 [DNU] blocks per batch in the
+   sweep logs (the VM prints a 17-line frame dump for each, rate-limited at
+   60), for a message that was always going to be caught and discarded.  A
+   past session misread that same trace as evidence of forwarded-object MNUs.
+   Catching an error you can cheaply not raise is not free here."
+  watchdog ifNotNil: [ :wd | [wd suspend] on: Error do: [:e |] ].
+  backupWatchdog ifNotNil: [ :bw | [bw suspend] on: Error do: [:e |] ].
 
   "Fix up TestExecutionEnvironment state: if our watchdog killed the test process,
    the ensure: block in runTestCase: may not have fired, leaving testCompleted=false.
