@@ -498,7 +498,7 @@ SUnitRunner class compile: 'runAllTests
 	[nanoTicks := self clock microsecondClockValue * 1000.
 	 nanoTicks < 1000000000000000000 and: [tries < 5]] whileTrue: [
 		tries := tries + 1.
-		Smalltalk stderr nextPutAll: ''''[NANO-CORRUPT] raw=''''; 
+		Stdio stderr nextPutAll: ''''[NANO-CORRUPT] raw=''''; 
 			nextPutAll: nanoTicks printString;
 			nextPutAll: '''' hex=''''; nextPutAll: (nanoTicks printStringBase: 16);
 			nextPutAll: '''' try=''''; nextPutAll: tries printString; lf].
@@ -653,9 +653,9 @@ SUnitRunner class compile: 'runAllTests
    whether it hangs inside exitSuccess or inside quitPrimitive.  These two
    lines go to stderr, which the sweep captures per batch, so the next run
    answers it."
-  Smalltalk stderr nextPutAll: ''[RUNNER] calling exitSuccess''; lf; flush.
+  Stdio stderr nextPutAll: ''[RUNNER] calling exitSuccess''; lf; flush.
   [Smalltalk exitSuccess] on: Error do: [:e |].
-  Smalltalk stderr nextPutAll: ''[RUNNER] exitSuccess returned; calling quitPrimitive''; lf; flush.
+  Stdio stderr nextPutAll: ''[RUNNER] exitSuccess returned; calling quitPrimitive''; lf; flush.
   Smalltalk quitPrimitive' classified: 'running'!
 
 SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs
