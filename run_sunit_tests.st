@@ -196,6 +196,32 @@ SUnitRunner class compile: 'runDiagnostic: stream
    stream nextPutAll: ''DIAG: Unicode check ERROR: ''; nextPutAll: e messageText; lf. stream flush].
   stream nextPutAll: ''=== END DIAGNOSTICS ===''; lf; lf. stream flush' classified: 'running'!
 
+SUnitRunner class compile: 'startDelayRecoveryLoop
+  "The image half of the VM''s scheduler self-heal (see runAllTests): wait on
+   the Semaphore the VM signals on a genuine Delay wedge, then restart the
+   timer loop.  The process is remembered so withoutHelperProcessesDo: can
+   stop and restart it."
+  Smalltalk globals at: #SUnitDelayRecoveryProcess put: ([[true] whileTrue: [
+    (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
+    [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
+    Processor yield]] forkAt: 70)' classified: 'running'!
+
+SUnitRunner class compile: 'withoutHelperProcessesDo: aBlock
+  "Run aBlock with the runner''s helper processes stopped: the delay-recovery
+   loop and the fake-GUI cycle loop.  Stock Pharo has neither, and
+   ReleaseTest>>testUnknownProcesses reports every process it does not know.
+   Both helpers start again afterwards."
+  | recovery cycle |
+  recovery := Smalltalk globals at: #SUnitDelayRecoveryProcess ifAbsent: [nil].
+  cycle := Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [nil].
+  recovery ifNotNil: [:p | [p terminate] on: Error do: [:e | ]].
+  cycle ifNotNil: [:p | [p terminate] on: Error do: [:e | ]].
+  ^ [aBlock value] ensure: [
+    recovery ifNotNil: [:p | self startDelayRecoveryLoop].
+    cycle ifNotNil: [:p |
+      (Smalltalk globals at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg |
+        [fg perform: #startCycleLoop] on: Error do: [:e | ]]]]' classified: 'running'!
+
 SUnitRunner class compile: 'runAllTests
   "Run all tests and write results to /tmp/sunit_test_results.txt and /tmp/sunit_test_detail.txt"
   | testClasses stream detail runNum totalP totalF totalE totalS totalT seen addOnce batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
@@ -466,10 +492,7 @@ SUnitRunner class compile: 'runAllTests
         ReleaseTest>>testThatThereAreNoSelectorsRemainingThatAreSentButNot
         Implemented flags against the runner itself."
        (Smalltalk globals at: #SUnitDelayRecoverySema put: Semaphore new) perform: #vmRegisterAsDelayRecovery.
-       [[true] whileTrue: [
-          (Smalltalk globals at: #SUnitDelayRecoverySema) wait.
-          [Delay scheduler restartTimerEventLoop] on: Error do: [:e | nil].
-          Processor yield]] forkAt: 70.
+       self startDelayRecoveryLoop.
        stream nextPutAll: ''DELAY-RECOVERY-REGISTERED''; lf. stream flush]]
       on: Error do: [:e |
        stream nextPutAll: ''DELAY-RECOVERY-ERR: ''; nextPutAll: e class name; lf. stream flush].
@@ -1021,7 +1044,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
      error during unwinding that escapes the on: Error handler."
     ensure: [testDone := true. doneSem signal]].
   testProcess := runInline
-    ifTrue: [testBlock value. nil]
+    ifTrue: [self withoutHelperProcessesDo: testBlock. nil]
     ifFalse: [testBlock forkAt: priority].
 
   "Watchdog: relinquish-based at userBackgroundPriority (60).
@@ -1132,8 +1155,11 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    60), for a message that was always going to be caught and discarded.  A
    past session misread that same trace as evidence of forwarded-object MNUs.
    Catching an error you can cheaply not raise is not free here."
-  watchdog ifNotNil: [ :wd | [wd suspend] on: Error do: [:e |] ].
-  backupWatchdog ifNotNil: [ :bw | [bw suspend] on: Error do: [:e |] ].
+  "Terminate after the suspend: a suspended watchdog stays a live process
+   until a GC collects it, and ReleaseTest>>testUnknownProcesses lists it.
+   The watchdog has no unwind blocks, so terminate cannot block."
+  watchdog ifNotNil: [ :wd | [wd suspend. wd terminate] on: Error do: [:e |] ].
+  backupWatchdog ifNotNil: [ :bw | [bw suspend. bw terminate] on: Error do: [:e |] ].
 
   "Fix up TestExecutionEnvironment state: if our watchdog killed the test process,
    the ensure: block in runTestCase: may not have fired, leaving testCompleted=false.
