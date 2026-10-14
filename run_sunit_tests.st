@@ -201,6 +201,16 @@ SUnitRunner class compile: 'runAllTests
   | testClasses stream detail runNum totalP totalF totalE totalS totalT seen addOnce batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
   runNum := self nextRunNumber.
 
+  "The prep ran in an eval whose process (''CommandLine handler process'')
+   stays suspended inside snapshot:andQuit: in the saved image.
+   ReleaseTest>>testUnknownProcesses reports it as an unknown process.
+   It has nothing left to do: terminate it."
+  [(Process allSubInstances select: [:p |
+      p ~~ Processor activeProcess
+        and: [p isTerminated not
+        and: [p name = ''CommandLine handler process'']]])
+     do: [:p | p terminate]] on: Error do: [:e | ].
+
   testClasses := OrderedCollection new.
   "Use a Set to track what we''ve already added - avoids duplicate iteration bug"
   seen := IdentitySet new.
@@ -913,7 +923,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    the scale knob can never produce a test that runs longer than this. The
    runner''s hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT testBlock runInline |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
@@ -952,8 +962,12 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
   effectiveWatchdog := (seconds * mult) min: maxPerTest.
   hardWait := (seconds * 2 * mult) min: maxPerTest.
 
+  "A test that lists the image''s processes (ReleaseTest>>testUnknownProcesses)
+   runs in this process: forked, it sees this runner process and the
+   watchdog as unknown processes.  It is quick and needs no watchdog."
+  runInline := testClass name asString = ''ReleaseTest'' and: [sel asString = ''testUnknownProcesses''].
   "Fork test at requested priority"
-  testProcess := [
+  testBlock := [
     | testInstance runBlock |
     testInstance := testClass selector: sel.
     "Set testCase on TestExecutionEnvironment so EpMonitor can query shouldLogWithEpicea"
@@ -1005,7 +1019,10 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
          s flush] on: Error do: [:e2 | "ignore trace errors"]]]
     "ensure: guarantees doneSem signal even if tearDown throws a second
      error during unwinding that escapes the on: Error handler."
-    ensure: [testDone := true. doneSem signal]] forkAt: priority.
+    ensure: [testDone := true. doneSem signal]].
+  testProcess := runInline
+    ifTrue: [testBlock value. nil]
+    ifFalse: [testBlock forkAt: priority].
 
   "Watchdog: relinquish-based at userBackgroundPriority (60).
    Previously used Delay>>wait, but when the scheduler process dies,
