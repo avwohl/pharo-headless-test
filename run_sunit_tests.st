@@ -313,9 +313,9 @@ SUnitRunner class compile: 'runAllTests
        thenSelect: [:l | l notEmpty].
      selected := OrderedCollection new.
      missing := OrderedCollection new.
-     names do: [:name |
-       (Smalltalk globals at: name asSymbol ifAbsent: [nil])
-         ifNil: [missing add: name]
+     names do: [:nm |
+       (Smalltalk globals at: nm asSymbol ifAbsent: [nil])
+         ifNil: [missing add: nm]
          ifNotNil: [:cls | selected add: cls]].
      batchClasses := selected.
      batchStart := 1.
@@ -699,7 +699,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
     ^ {0. 0. 0. 0. 0}].
 
   "Skip genuinely abstract classes — use isAbstract instead of manual list"
-  ([testClass isAbstract] on: Error do: [:e | false]) ifTrue: [
+  ([testClass isAbstract] on: Error do: [:ex | false]) ifTrue: [
     s nextPutAll: ''=== ''; nextPutAll: testClass name; nextPutAll: '' === SKIPPED (abstract)''; lf. s flush.
     ^ {0. 0. 0. 0. 0}].
 
@@ -730,7 +730,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
        on: Error do: [:rex |
          s nextPutAll: ''  DELAY-RESTART-FAILED: ''; nextPutAll: rex class name;
            nextPutAll: '' ''; nextPutAll: (rex messageText ifNil: [''?'']); lf. s flush]]]
-  on: Error do: [:e |].
+  on: Error do: [:ex |].
   "Tests must run below timingPriority (80). Watchdog uses Delay>>wait at P60.
    Use priority 40 (userSchedulingPriority) matching standard Pharo behavior.
    This is critical because some tests do forkAt: activeProcess priority + N
@@ -832,10 +832,10 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
        inherited from a superclass (all the FL* cases), and a single
        shared on:Error would abort before the shouldPass check runs."
       isExpectedFailure := ([(testClass >> sel) pragmas
-        anySatisfy: [:p | p selector = #expectedFailure]]
-        on: Error do: [:e | false])
+        anySatisfy: [:pr | pr selector = #expectedFailure]]
+        on: Error do: [:ex | false])
         or: [[(testClass selector: sel) shouldPass not]
-          on: Error do: [:e | false]].
+          on: Error do: [:ex | false]].
       isExpectedFailure ifTrue: [
         s nextPutAll: ''  RUN: ''; nextPutAll: sel; nextPutAll: '' (expectedFailure)''; lf. s flush.
         sk := sk + 1.
@@ -917,15 +917,15 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
             ifNotNil: [s nextPutAll: ctx printString].
           s nextPutAll: '' isTerminated=''; nextPutAll: proc isTerminated printString;
             nextPutAll: '' isSuspended=''; nextPutAll: proc isSuspended printString].
-      s cr. s flush] on: Error do: [:e |
-        s nextPutAll: ''  DELAY-DIAG-ERROR: ''; nextPutAll: e printString; lf. s flush].
+      s cr. s flush] on: Error do: [:ex |
+        s nextPutAll: ''  DELAY-DIAG-ERROR: ''; nextPutAll: ex printString; lf. s flush].
      "Restart the scheduler so next class has a working Delay."
      [Delay scheduler restartTimerEventLoop.
       s nextPutAll: ''  DELAY-RESTARTED-AFTER: ''; nextPutAll: testClass name; lf. s flush]
        on: Error do: [:rex |
          s nextPutAll: ''  DELAY-RESTART-FAILED: ''; nextPutAll: rex class name;
            nextPutAll: '' ''; nextPutAll: (rex messageText ifNil: [''?'']); lf. s flush]]]
-  on: Error do: [:e |].
+  on: Error do: [:ex |].
   s nextPutAll: ''Total: ''; print: sels size;
     nextPutAll: '' P:''; print: p;
     nextPutAll: '' F:''; print: f;
