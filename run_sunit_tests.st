@@ -1011,8 +1011,11 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
         "SUnitTest inspects the CURRENT execution environment (e.g.
          testWatchDogProcessShouldNotBeCatchedAsForkedProcess asserts no
          forked processes at test start) — our long-lived batch env has
-         tracked forks, so run its cases under a FRESH managed env."
-        testClass name asString = ''SUnitTest''
+         tracked forks, so run its cases under a FRESH managed env.
+         StDebuggerTest>>testIsInSelectedContextPackage reads its own stack
+         and expects the standard SUnit frames (item 12 is
+         runTestCaseUnderWatchdog:), which only runCaseManaged has."
+        (#(''SUnitTest'' ''StDebuggerTest'') includes: testClass name asString)
           ifTrue: [[DefaultExecutionEnvironment beActiveDuring: [testInstance runCaseManaged]]]
           ifFalse: [[testInstance runCase]]].
     [[[[[runBlock value]
