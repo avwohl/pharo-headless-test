@@ -51,13 +51,24 @@ WorldMorph allInstances ifEmpty: [
 
 "In headless mode, submorphs can contain nil entries when layout hasn't
  fully initialized. This causes 'receiver of activate is nil' errors."
+"Compile each patch into the protocol the method already has.  Pharo 13
+ keeps #passivate in the extension protocol *Polymorph-Widgets; Pharo 14 moved
+ it into Morphic-Core, so compiling into *Polymorph-Widgets there made a new,
+ baseline-less package and ReleaseTest>>testNoOrphanPackage failed.  The
+ literal names are the fallback for an image that lacks the method."
 Morph compile: 'activate
   "Make receiver and submorphs able to respond to events."
-  self submorphsDo: [:m | m ifNotNil: [m activate]]' classified: '*Morphic-Widgets-Windows'!
+  self submorphsDo: [:m | m ifNotNil: [m activate]]'
+  classified: ((Morph includesSelector: #activate)
+    ifTrue: [(Morph >> #activate) protocolName]
+    ifFalse: ['*Morphic-Widgets-Windows']).
 
 Morph compile: 'passivate
   "Make receiver and submorphs unable to respond to events."
-  self submorphsDo: [:m | m ifNotNil: [m passivate]]' classified: '*Polymorph-Widgets'!
+  self submorphsDo: [:m | m ifNotNil: [m passivate]]'
+  classified: ((Morph includesSelector: #passivate)
+    ifTrue: [(Morph >> #passivate) protocolName]
+    ifFalse: ['*Polymorph-Widgets'])!
 
 "=== Step 4: FakeGUI helper class ==="
 

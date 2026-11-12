@@ -222,21 +222,10 @@ SUnitRunner class compile: 'withoutHelperProcessesDo: aBlock
       (Smalltalk globals at: #FakeGUI ifAbsent: [nil]) ifNotNil: [:fg |
         [fg perform: #startCycleLoop] on: Error do: [:e | ]]]]' classified: 'running'!
 
-SUnitRunner class compile: 'runAllTests
-  "Run all tests and write results to /tmp/sunit_test_results.txt and /tmp/sunit_test_detail.txt"
-  | testClasses stream detail runNum totalP totalF totalE totalS totalT seen addOnce batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
-  runNum := self nextRunNumber.
-
-  "The prep ran in an eval whose process (''CommandLine handler process'')
-   stays suspended inside snapshot:andQuit: in the saved image.
-   ReleaseTest>>testUnknownProcesses reports it as an unknown process.
-   It has nothing left to do: terminate it."
-  [(Process allSubInstances select: [:p |
-      p ~~ Processor activeProcess
-        and: [p isTerminated not
-        and: [p name = ''CommandLine handler process'']]])
-     do: [:p | p terminate]] on: Error do: [:e | ].
-
+SUnitRunner class compile: 'collectTestClasses
+  "The ordered list of test classes the runner runs: the curated names first,
+   then every other non-abstract TestCase subclass."
+  | testClasses seen addOnce |
   testClasses := OrderedCollection new.
   "Use a Set to track what we''ve already added - avoids duplicate iteration bug"
   seen := IdentitySet new.
@@ -277,6 +266,32 @@ SUnitRunner class compile: 'runAllTests
      asSortedCollection: [:a :b | a name <= b name].
    allTC do: [:cls | addOnce value: cls]]
   on: Error do: [:e |].
+  ^ testClasses' classified: 'running'!
+
+SUnitRunner class compile: 'testClassCount
+  "Answer how many classes the runner lists.  sunit-sweep.sh asks for this
+   number when TOTAL is not set."
+  ^ self collectTestClasses size' classified: 'running'!
+
+SUnitRunner class compile: 'runAllTests
+  "Run all tests and write results to /tmp/sunit_test_results.txt and /tmp/sunit_test_detail.txt"
+  | testClasses stream detail runNum totalP totalF totalE totalS totalT batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
+  runNum := self nextRunNumber.
+
+  "The prep ran in an eval whose process stays suspended inside
+   snapshot:andQuit: in the saved image.  ReleaseTest>>testUnknownProcesses
+   reports it as an unknown process.  It has nothing left to do: terminate
+   it.  Pharo 13 names it ''CommandLine handler process'' and Pharo 14 names it
+   ''Commandline handler process'' (lower case l), so compare without case."
+  [(Process allSubInstances select: [:p |
+      p ~~ Processor activeProcess
+        and: [p isTerminated not
+        and: [p name asLowercase = ''commandline handler process'']]])
+     do: [:p | p terminate]] on: Error do: [:e | ].
+
+  "The class list comes from collectTestClasses, which sunit-sweep.sh also
+   asks (via testClassCount) for the size of the sweep."
+  testClasses := self collectTestClasses.
 
   "Read batch range from /tmp/sunit_batch.txt (format: ''startIndex endIndex'')
    OR class names from /tmp/sunit_class_names.txt (one class name per line).
