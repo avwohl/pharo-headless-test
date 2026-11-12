@@ -961,7 +961,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    the scale knob can never produce a test that runs longer than this. The
    runner''s hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT testBlock runInline |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT testBlock runInline hostEnv savedMainProcess savedSuspends |
   result := nil. "nil means pass"
   testDone := false.
   doneSem := Semaphore new.
@@ -1064,6 +1064,30 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
   testProcess := runInline
     ifTrue: [self withoutHelperProcessesDo: testBlock. nil]
     ifFalse: [testBlock forkAt: priority].
+
+  "The forked process runs the test, so it is the environment''s main test
+   process.  The runner main activated the batch environment, so its
+   mainTestProcess is the runner main, and ProcessMonitorTestService treated
+   every unhandled exception in the test process as a BACKGROUND failure and
+   suspended the test process for good.  In stock Pharo a test runs in the
+   main test process: the monitor passes its unhandled exceptions on, and a
+   headless Warning prints and resumes.  Measured 2026-11-12 on Pharo 14:
+   StTarjanAlgorithmTest>>testNoOutgoingDependenciesAfterTarjan signals
+   StPotentialOutDatedDependencyWarning (the same warning appears on a
+   pristine image under stock Cog), the test process parked in
+   ProcessMonitorTestService>>suspendBackgroundFailure:, and the test ran
+   into the 80 s watchdog.  This runs at priority 79 right after the fork, so
+   the test (priority 40) has not started yet.  The monitor also switches
+   suspension off for good once the main process fails, and the runner never
+   calls cleanUpAfterTest (it would terminate the processes tests leave on
+   purpose), so the end of this method restores both fields.  Only the
+   environment this runner activated is touched: runCaseManaged classes make
+   their own fresh environment."
+  testProcess ifNotNil: [
+    [hostEnv := CurrentExecutionEnvironment value.
+     savedMainProcess := hostEnv instVarNamed: ''mainTestProcess''.
+     savedSuspends := hostEnv processMonitor shouldSuspendBackgroundFailures.
+     hostEnv instVarNamed: ''mainTestProcess'' put: testProcess] on: Error do: [:e2 | hostEnv := nil]].
 
   "Watchdog: relinquish-based at userBackgroundPriority (60).
    Previously used Delay>>wait, but when the scheduler process dies,
@@ -1178,6 +1202,11 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    The watchdog has no unwind blocks, so terminate cannot block."
   watchdog ifNotNil: [ :wd | [wd suspend. wd terminate] on: Error do: [:e |] ].
   backupWatchdog ifNotNil: [ :bw | [bw suspend. bw terminate] on: Error do: [:e |] ].
+
+  "Undo the mainTestProcess hand-over above (see there)."
+  hostEnv ifNotNil: [
+    [hostEnv instVarNamed: ''mainTestProcess'' put: savedMainProcess.
+     hostEnv processMonitor shouldSuspendBackgroundFailures: savedSuspends] on: Error do: [:e2 |]].
 
   "Fix up TestExecutionEnvironment state: if our watchdog killed the test process,
    the ensure: block in runTestCase: may not have fired, leaving testCompleted=false.
