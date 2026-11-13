@@ -1209,7 +1209,7 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
     [hostEnv instVarNamed: ''mainTestProcess'' put: savedMainProcess.
      hostEnv processMonitor shouldSuspendBackgroundFailures: savedSuspends] on: Error do: [:e2 |]].
 
-  "Stand the environment's watchdog down after EVERY test, not only after a
+  "Stand the watchdog of the environment down after EVERY test, not only after a
    timeout.  This runner calls runCase, never runTestCase:, so nothing else sets
    testCompleted.  A test that calls `self timeLimit: 30 seconds` (ProtoObjectTest,
    IntegerTest, TraitFileOutTest, ...) runs TestCase>>timeLimit:, which signals the
