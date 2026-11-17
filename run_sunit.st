@@ -76,6 +76,9 @@ addOnce := [ :cls | (seen includes: cls) ifFalse: [ seen add: cls. testClasses a
 "Session state, as a resumed interactive image has it."
 [ (UIManager default class == MorphicUIManager) ifFalse: [ MorphicUIManager new beDefault ] ] on: Error do: [ :e | ].
 [ (Smalltalk globals at: #FakeGUI ifAbsent: [ nil ]) ifNotNil: [ :fg | fg perform: #startCycleLoop ] ] on: Error do: [ :e | ].
+"One Morphic actor at a time: a World cycle of another process waits while this process can run (setup_fake_gui.st, Step 3b)."
+[ (Smalltalk globals at: #FakeGUI ifAbsent: [ nil ]) ifNotNil: [ :fg |
+	(fg respondsTo: #testProcess:) ifTrue: [ fg perform: #testProcess: with: Processor activeProcess ] ] ] on: Error do: [ :e | ].
 "ReleaseTest>>testPharoVersionFileExists reads imageDirectory/pharo.version, which
  every installation has and a bare image file does not."
 [ | vf | vf := FileLocator imageDirectory / 'pharo.version'.
@@ -176,7 +179,7 @@ batchClasses do: [ :klass |
 								[ fg perform: #startCycleLoop ] on: Error do: [ :e | ] ] ] ] ]
 				ifFalse: [ test runCaseManaged ].
 			result addPass: test ]
-			on: TestFailure , TestSkipped , Warning , Error
+			on: TestFailure , TestSkipped , Warning , Error , Halt
 			do: [ :ex |
 				text := ex class name , ': ' , (ex messageText ifNil: [ '' ]).
 				trace := [ | ctx n lines |
@@ -184,7 +187,10 @@ batchClasses do: [ :klass |
 					[ ctx notNil and: [ n < 25 ] ] whileTrue: [
 						lines add: ctx printString. ctx := ctx sender. n := n + 1 ].
 					lines ] on: Error do: [ :e2 | #() ].
-				ex sunitAnnounce: test toResult: result ] ]
+				"A halt that the code under test left in is an error of the test.  Halt is not an Error: without this line the image had no handler, and a headless image then exits (the row fouziray-escapeanalysispharo of the package run stopped the two VMs that way)."
+				(ex isKindOf: Halt)
+					ifTrue: [ result addError: test ]
+					ifFalse: [ ex sunitAnnounce: test toResult: result ] ] ]
 			on: Deprecation do: [ :ex | ex pass ] ]
 			ensure: [
 				test announce: TestCaseEnded withResult: result.

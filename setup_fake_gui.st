@@ -70,6 +70,52 @@ Morph compile: 'passivate
     ifTrue: [(Morph >> #passivate) protocolName]
     ifFalse: ['*Polymorph-Widgets'])!
 
+"=== Step 3b: one Morphic actor at a time ==="
+
+"Morphic is not safe for two processes.  In an interactive session the tests
+ run in the UI process, and in a headless session of the stock tools no UI
+ process runs.  This harness runs the tests in the runner process while the
+ Morphic UI process and the cycle loop of FakeGUI run World cycles, so that a
+ test that waits for a deferred action gets it.
+
+ The run queue rule does not keep the two apart: the image runs with
+ preemptionYields, so each time a process of a higher priority (a timer) runs,
+ the test process goes behind the other processes of its priority, and a
+ World cycle can start in the middle of the work of the test.  Measured
+ 2026-11-17 on stock Cog: StMethodBrowserTest failed in 3 of 30 class runs
+ with ''index out of range'' in Morph>>privateAddAllMorphs:atIndex:.  The UI
+ process ran TabSelectorMorph>>updateTabs (layout of the window, from
+ doOneCycle) between removeAllMorphs and addAllMorphs: of the same method in
+ the test process.
+
+ The gate: a World cycle of a process that is not the test process starts only
+ when the test process does not want the processor (it waits on a semaphore:
+ a Delay, a deferred action, a lock), or when no test process is set.  A test
+ process that was preempted is in a run queue (Process>>isReady).  The runner
+ sets the global FakeGUITestProcess (FakeGUI class>>testProcess:).  The method
+ has no reference to a class of the harness, so the package of
+ MorphicRenderLoop gets no new dependency.
+
+ Known limit: the gate acts when a cycle starts.  A test process that wakes
+ while a cycle of another process is in work can still run in the middle of
+ that cycle, and the UI process and the cycle loop of FakeGUI are two actors
+ for each other.  Measured 2026-11-17: StMethodBrowserTest had 7 bad class
+ runs of 80 on stock Cog before the gate.  With the gate, 30 of 30 class runs
+ on stock Cog and 10 of 10 on our VM are clean.  With the first form of the
+ gate (a test of suspendingList and no wait), 90 of 90 class runs on stock Cog
+ were clean and a full sweep had no batch that stopped."
+MorphicRenderLoop compile: 'doOneCycle
+  "Harness (setup_fake_gui.st, Step 3b): no World cycle of another process in the middle of the work of the test process."
+  | testProcess |
+  testProcess := Smalltalk globals at: #FakeGUITestProcess ifAbsent: [ nil ].
+  (testProcess notNil
+    and: [ testProcess ~~ Processor activeProcess
+    and: [ testProcess isReady ] ]) ifTrue: [
+      "The test process can run: no cycle now.  The short wait gives the processor to a test process of a lower priority too (doOneCycleWhile: has only a yield, and the pause between cycles is inside the cycle)."
+      ^ (Delay forMilliseconds: 1) wait ].
+  WorldMorph doOneCycle'
+  classified: (MorphicRenderLoop >> #doOneCycle) protocolName!
+
 "=== Step 4: FakeGUI helper class ==="
 
 ShiftClassInstaller make: [:builder |
@@ -77,6 +123,14 @@ ShiftClassInstaller make: [:builder |
     name: #FakeGUI;
     superclass: Object;
     package: 'Tests-FakeGUI']!
+
+"--- The test process (see Step 3b) ---"
+
+FakeGUI class compile: 'testProcess: aProcessOrNil
+  "The process that runs the tests.  World cycles of other processes wait while this process can run.  nil ends the rule."
+  aProcessOrNil
+    ifNil: [ Smalltalk globals removeKey: #FakeGUITestProcess ifAbsent: [ ] ]
+    ifNotNil: [ Smalltalk globals at: #FakeGUITestProcess put: aProcessOrNil ]' classified: 'running'!
 
 "--- World stepping ---"
 
