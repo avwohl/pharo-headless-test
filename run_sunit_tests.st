@@ -165,10 +165,22 @@ SHA256 class compile: 'hashMessage: aStringOrByteArray
   ^ self new hashMessage: aStringOrByteArray'
   classified: 'public'!
 
+SUnitRunner class compile: 'tmpPath: aName
+  "Answer the path of one state file of the runner: <prefix>_<aName>.
+   The prefix is the value of the environment variable SUNIT_PREFIX, and
+   /tmp/sunit when the variable is not set.  Two runs with different
+   prefixes share no file, so they can run at the same time."
+  | p |
+  p := [Smalltalk os environment at: ''SUNIT_PREFIX'' ifAbsent: [nil]]
+    on: Error do: [:e | nil].
+  p := p ifNil: [''''] ifNotNil: [:v | v trimBoth].
+  p isEmpty ifTrue: [p := ''/tmp/sunit''].
+  ^ p , ''_'' , aName' classified: 'running'!
+
 SUnitRunner class compile: 'nextRunNumber
   "Read, increment, and persist the run counter."
   | file num |
-  file := ''/tmp/sunit_run_number.txt'' asFileReference.
+  file := (SUnitRunner tmpPath: ''run_number.txt'') asFileReference.
   num := [file contents asInteger] on: Error do: [:e | 0].
   num := num + 1.
   file writeStreamDo: [:s | s nextPutAll: num printString].
@@ -239,7 +251,7 @@ SUnitRunner class compile: 'collectTestClasses
    to /tmp/sunit_test_classes.txt before running.  Falls back to the
    dynamic-discovery tier below if the file is missing."
   [| listFile |
-   listFile := ''/tmp/sunit_test_classes.txt'' asFileReference.
+   listFile := (SUnitRunner tmpPath: ''test_classes.txt'') asFileReference.
    listFile exists ifTrue: [
      listFile lines do: [:raw |
        | trimmed |
@@ -275,7 +287,7 @@ SUnitRunner class compile: 'testClassCount
 
 SUnitRunner class compile: 'runAllTests
   "Run all tests and write results to /tmp/sunit_test_results.txt and /tmp/sunit_test_detail.txt"
-  | testClasses stream detail runNum totalP totalF totalE totalS totalT batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
+  | testClasses stream detail runNum totalP totalF totalE totalS totalT totalX batchStart batchEnd batchClasses timeoutScale watchdogTimeout batchDeadline maxBatchSeconds batchAborted |
   runNum := self nextRunNumber.
 
   "The prep ran in an eval whose process stays suspended inside
@@ -317,10 +329,10 @@ SUnitRunner class compile: 'runAllTests
     batchStart := 1.
     batchEnd := filtered size.
     missing isEmpty ifFalse: [
-      ''/tmp/sunit_unknown_classes.txt'' asFileReference writeStreamDo: [:o |
+      (SUnitRunner tmpPath: ''unknown_classes.txt'') asFileReference writeStreamDo: [:o |
         missing do: [:n | o nextPutAll: n; lf]]]].
   [| classNamesFile |
-   classNamesFile := ''/tmp/sunit_class_names.txt'' asFileReference.
+   classNamesFile := (SUnitRunner tmpPath: ''class_names.txt'') asFileReference.
    classNamesFile exists ifTrue: [
      | names selected missing |
      names := classNamesFile lines
@@ -336,17 +348,17 @@ SUnitRunner class compile: 'runAllTests
      batchStart := 1.
      batchEnd := selected size.
      missing isEmpty ifFalse: [
-       ''/tmp/sunit_unknown_classes.txt'' asFileReference writeStreamDo: [:o |
+       (SUnitRunner tmpPath: ''unknown_classes.txt'') asFileReference writeStreamDo: [:o |
          missing do: [:n | o nextPutAll: n; lf]]]]
    ifFalse: [
      [| batchFile parts |
-      batchFile := ''/tmp/sunit_batch.txt'' asFileReference.
+      batchFile := (SUnitRunner tmpPath: ''batch.txt'') asFileReference.
       batchFile exists ifTrue: [
         parts := batchFile contents trimBoth substrings.
         batchStart := parts first asInteger.
         batchEnd := (parts second asInteger min: testClasses size)]]
      on: Error do: [:e | | cur count |
-       ''/tmp/sunit_batch_err.txt'' asFileReference writeStreamDo: [:o |
+       (SUnitRunner tmpPath: ''batch_err.txt'') asFileReference writeStreamDo: [:o |
          o nextPutAll: ''batch parse err: ''; nextPutAll: e class name; lf.
          o nextPutAll: ''msg: ''; nextPutAll: (e messageText ifNil: [''?'']); lf.
          o nextPutAll: ''stack:''; lf.
@@ -357,7 +369,7 @@ SUnitRunner class compile: 'runAllTests
            cur := cur sender.
            count := count + 1]]]]]
   on: Error do: [:e |
-    ''/tmp/sunit_batch_outer_err.txt'' asFileReference writeStreamDo: [:o |
+    (SUnitRunner tmpPath: ''batch_outer_err.txt'') asFileReference writeStreamDo: [:o |
       o nextPutAll: ''outer err: ''; nextPutAll: e class name; lf.
       o nextPutAll: ''msg: ''; nextPutAll: (e messageText ifNil: [''?'']); lf]].
   batchClasses ifNil: [batchClasses := testClasses copyFrom: batchStart to: batchEnd].
@@ -409,11 +421,11 @@ SUnitRunner class compile: 'runAllTests
 
   "Open output files — both overwritten per batch.
    Shell script concatenates detail files across batches."
-  ''/tmp/sunit_test_results.txt'' asFileReference ensureDelete.
-  stream := ''/tmp/sunit_test_results.txt'' asFileReference writeStream.
-  ''/tmp/sunit_test_detail.txt'' asFileReference ensureDelete.
-  detail := ''/tmp/sunit_test_detail.txt'' asFileReference writeStream.
-  totalP := 0. totalF := 0. totalE := 0. totalS := 0. totalT := 0.
+  (SUnitRunner tmpPath: ''test_results.txt'') asFileReference ensureDelete.
+  stream := (SUnitRunner tmpPath: ''test_results.txt'') asFileReference writeStream.
+  (SUnitRunner tmpPath: ''test_detail.txt'') asFileReference ensureDelete.
+  detail := (SUnitRunner tmpPath: ''test_detail.txt'') asFileReference writeStream.
+  totalP := 0. totalF := 0. totalE := 0. totalS := 0. totalT := 0. totalX := 0.
 
   [
     stream nextPutAll: ''=== SUnit Test Run #''; print: runNum;
@@ -428,8 +440,8 @@ SUnitRunner class compile: 'runAllTests
       nextPutAll: '' last=''; nextPutAll: (batchClasses isEmpty
         ifTrue: [''(empty)'']
         ifFalse: [batchClasses last name]); lf.
-    stream nextPutAll: ''BATCH-DEBUG: batch-file exists=''; print: (''/tmp/sunit_batch.txt'' asFileReference exists);
-      nextPutAll: '' names-file exists=''; print: (''/tmp/sunit_class_names.txt'' asFileReference exists); lf.
+    stream nextPutAll: ''BATCH-DEBUG: batch-file exists=''; print: ((SUnitRunner tmpPath: ''batch.txt'') asFileReference exists);
+      nextPutAll: '' names-file exists=''; print: ((SUnitRunner tmpPath: ''class_names.txt'') asFileReference exists); lf.
     stream nextPutAll: ''BATCH-DEADLINE: ''; print: batchDeadline;
       nextPutAll: '' (maxBatchSeconds=''; print: maxBatchSeconds; nextPutAll: '')''; lf.
     stream nextPutAll: ''MAX-PER-TEST: '';
@@ -553,7 +565,7 @@ SUnitRunner class compile: 'runAllTests
      so all tests inherit a generous scaled timeout instead of the 10s JIT default."
     timeoutScale := 5.
     [| f |
-     f := ''/tmp/sunit_timeout_scale.txt'' asFileReference.
+     f := (SUnitRunner tmpPath: ''timeout_scale.txt'') asFileReference.
      f exists ifTrue: [
        | v | v := f contents trimBoth asInteger.
        v > 0 ifTrue: [timeoutScale := v]]]
@@ -632,7 +644,8 @@ SUnitRunner class compile: 'runAllTests
       totalF := totalF + (counts at: 2).
       totalE := totalE + (counts at: 3).
       totalS := totalS + (counts at: 4).
-      totalT := totalT + (counts at: 5)]
+      totalT := totalT + (counts at: 5).
+      totalX := totalX + (counts at: 6)]
         on: Error do: [:ex |
           "TestTookTooMuchTime from TestExecutionEnvironment watchdog — count as timeout, don''t abort class"
           ex class name = ''TestTookTooMuchTime''
@@ -670,12 +683,13 @@ SUnitRunner class compile: 'runAllTests
     stream nextPutAll: ''Error: ''; print: totalE; lf.
     stream nextPutAll: ''Skip: ''; print: totalS; lf.
     totalT > 0 ifTrue: [stream nextPutAll: ''Timeout: ''; print: totalT; lf].
-    stream nextPutAll: ''Total: ''; print: totalP + totalF + totalE + totalS + totalT; lf.
+    totalX > 0 ifTrue: [stream nextPutAll: ''ExpectedFailure: ''; print: totalX; lf].
+    stream nextPutAll: ''Total: ''; print: totalP + totalF + totalE + totalS + totalT + totalX; lf.
     stream cr.
     stream nextPutAll: ''=== BATCH COMPLETE ===''; lf.
     stream flush.
     "Write completion marker to prevent auto-restart on image resume"
-    [''/tmp/sunit_run_completed.txt'' asFileReference
+    [(SUnitRunner tmpPath: ''run_completed.txt'') asFileReference
       writeStreamDo: [:ws | ws nextPutAll: ''Run #''; nextPutAll: runNum printString;
         nextPutAll: '' completed at ''; nextPutAll: DateAndTime now printString]]
     on: Error do: [:e |]]
@@ -704,19 +718,19 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
 SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d timeout: watchdogSecs deadline: batchDeadline
   "Run all tests in a class. Returns #(pass fail error skip timeout).
    Bails out immediately if DateAndTime now >= batchDeadline."
-  | sels p f e sk t testPriority consecutiveTimeouts |
+  | sels p f e sk t xf testPriority consecutiveTimeouts |
 
   "Hard deadline check. Return a zero count so the outer loop accumulates
    nothing and moves on. The outer loop will notice the deadline too."
   DateAndTime now >= batchDeadline ifTrue: [
     s nextPutAll: ''=== ''; nextPutAll: testClass name;
       nextPutAll: '' === SKIPPED (batch deadline)''; lf. s flush.
-    ^ {0. 0. 0. 0. 0}].
+    ^ {0. 0. 0. 0. 0. 0}].
 
   "Skip genuinely abstract classes — use isAbstract instead of manual list"
   ([testClass isAbstract] on: Error do: [:ex | false]) ifTrue: [
     s nextPutAll: ''=== ''; nextPutAll: testClass name; nextPutAll: '' === SKIPPED (abstract)''; lf. s flush.
-    ^ {0. 0. 0. 0. 0}].
+    ^ {0. 0. 0. 0. 0. 0}].
 
   s nextPutAll: ''=== ''; nextPutAll: testClass name; nextPutAll: '' ===''; lf.
   s flush.
@@ -752,7 +766,7 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
    and priority 79+20=99 would exceed Processor highestPriority (80).
    Weak/finalization tests MUST run below mourn priority (51), also at 40."
   testPriority := 40.
-  p := 0. f := 0. e := 0. sk := 0. t := 0. consecutiveTimeouts := 0.
+  p := 0. f := 0. e := 0. sk := 0. t := 0. xf := 0. consecutiveTimeouts := 0.
   sels := testClass allTestSelectors asArray.
   "DIAGNOSTIC: if sels is empty, log what we can discover"
   sels isEmpty ifTrue: [
@@ -809,9 +823,9 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
   "Optional per-method filter: /tmp/sunit_method_names.txt (one selector per
    line) restricts which test methods run — used to isolate a single test from
    a hang-prone full-class suite (e.g. ContextTest>>testJump under det-sched)."
-  (''/tmp/sunit_method_names.txt'' asFileReference exists) ifTrue: [
+  ((SUnitRunner tmpPath: ''method_names.txt'') asFileReference exists) ifTrue: [
     | wanted |
-    wanted := ((''/tmp/sunit_method_names.txt'' asFileReference contents lines)
+    wanted := (((SUnitRunner tmpPath: ''method_names.txt'') asFileReference contents lines)
                   collect: [:ln | ln trimBoth]) asSet.
     sels := sels select: [:sel | wanted includes: sel asString].
     s nextPutAll: ''  METHOD-FILTER: ''; print: sels size; nextPutAll: '' selected''; lf. s flush].
@@ -823,8 +837,10 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
       s nextPutAll: ''Total: ''; print: sels size;
         nextPutAll: '' P:''; print: p; nextPutAll: '' F:''; print: f;
         nextPutAll: '' E:''; print: e; nextPutAll: '' S:''; print: sk;
-        nextPutAll: '' T:''; print: t; lf; lf. s flush.
-      ^ {p. f. e. sk. t}].
+        nextPutAll: '' T:''; print: t.
+      xf > 0 ifTrue: [s nextPutAll: '' X:''; print: xf].
+      s lf; lf. s flush.
+      ^ {p. f. e. sk. t. xf}].
     "Selector skip list: EMPTY since 2026-08-23.  Its last two entries were the
      inherited ClassTestCase AST-lint rules
      (testMethodsOfTheClassShouldNotBeRepeatedInItsSuperclasses and
@@ -851,16 +867,21 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
         on: Error do: [:ex | false])
         or: [[(testClass selector: sel) shouldPass not]
           on: Error do: [:ex | false]].
-      isExpectedFailure ifTrue: [
-        s nextPutAll: ''  RUN: ''; nextPutAll: sel; nextPutAll: '' (expectedFailure)''; lf. s flush.
-        sk := sk + 1.
-        d nextPutAll: runNum printString; nextPut: $	.
-        d nextPutAll: testClass name; nextPut: $	.
-        d nextPutAll: sel; nextPut: $	.
-        d nextPutAll: ''SKIP''; lf. d flush]
-      ifFalse: [
-      s nextPutAll: ''  RUN: ''; nextPutAll: sel; lf. s flush.
+      "An expected failure RUNS (since 2026-11-17; before, the runner counted
+       it as a skip and never ran it).  SUnit''s own rule: the test fails or
+       errors -> expected failure (XFAIL line, X count); the test passes ->
+       unexpected pass, which SUnit reports as a failure.  runSingleTest reads
+       the flag and writes XFAIL in place of FAIL or ERROR."
+      Smalltalk globals at: #SUnitRunnerExpectedFailure put: isExpectedFailure.
+      s nextPutAll: ''  RUN: ''; nextPutAll: sel.
+      isExpectedFailure ifTrue: [s nextPutAll: '' (expectedFailure)''].
+      s lf. s flush.
       result := self runSingleTest: testClass selector: sel timeout: watchdogSecs priority: testPriority on: s.
+      Smalltalk globals at: #SUnitRunnerExpectedFailure put: false.
+      (isExpectedFailure and: [result isNil]) ifTrue: [
+        result := #fail.
+        s nextPutAll: ''  FAIL: ''; nextPutAll: sel;
+          nextPutAll: '' [unexpected pass: the test is marked as an expected failure and it passes]''; lf. s flush].
       result ifNil: [
         p := p + 1. consecutiveTimeouts := 0.
         d nextPutAll: runNum printString; nextPut: $	.
@@ -883,6 +904,12 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
           d nextPutAll: testClass name; nextPut: $	.
           d nextPutAll: sel; nextPut: $	.
           d nextPutAll: ''SKIP''; lf].
+        kind = #xfail ifTrue: [
+          xf := xf + 1.
+          d nextPutAll: runNum printString; nextPut: $	.
+          d nextPutAll: testClass name; nextPut: $	.
+          d nextPutAll: sel; nextPut: $	.
+          d nextPutAll: ''XFAIL''; lf].
         kind = #error ifTrue: [
           e := e + 1.
           d nextPutAll: runNum printString; nextPut: $	.
@@ -902,8 +929,10 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
           s nextPutAll: ''Total: ''; print: sels size;
             nextPutAll: '' P:''; print: p; nextPutAll: '' F:''; print: f;
             nextPutAll: '' E:''; print: e; nextPutAll: '' S:''; print: sk;
-            nextPutAll: '' T:''; print: t; lf; lf. s flush.
-          ^ {p. f. e. sk. t}]]]].
+            nextPutAll: '' T:''; print: t.
+          xf > 0 ifTrue: [s nextPutAll: '' X:''; print: xf].
+          s lf; lf. s flush.
+          ^ {p. f. e. sk. t. xf}]]].
 
   "Check if Delay scheduler is alive after this class"
   [| sem alive startMs elapsed |
@@ -947,8 +976,9 @@ SUnitRunner class compile: 'runTestClass: testClass run: runNum on: s detail: d 
     nextPutAll: '' E:''; print: e;
     nextPutAll: '' S:''; print: sk.
   t > 0 ifTrue: [s nextPutAll: '' T:''; print: t].
+  xf > 0 ifTrue: [s nextPutAll: '' X:''; print: xf].
   s cr; lf.
-  ^ {p. f. e. sk. t}' classified: 'running'!
+  ^ {p. f. e. sk. t. xf}' classified: 'running'!
 
 SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seconds priority: priority on: s
   "Run a single test with Delay-based watchdog.
@@ -961,8 +991,11 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
    the scale knob can never produce a test that runs longer than this. The
    runner''s hard wait is min(seconds * 2, maxPerTest). Override with
    Smalltalk globals at: #SUnitMaxPerTestSeconds (default 300s)."
-  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT testBlock runInline hostEnv savedMainProcess savedSuspends |
+  | result testProcess doneSem watchdog backupWatchdog "unused" testDone maxPerTest effectiveWatchdog hardWait mult noJIT testBlock runInline hostEnv savedMainProcess savedSuspends expected |
   result := nil. "nil means pass"
+  "The caller sets this global for a test that is marked as an expected
+   failure; a failure or an error of such a test is written as XFAIL."
+  expected := (Smalltalk globals at: #SUnitRunnerExpectedFailure ifAbsent: [false]) == true.
   testDone := false.
   doneSem := Semaphore new.
   maxPerTest := Smalltalk globals at: #SUnitMaxPerTestSeconds ifAbsent: [300].
@@ -1035,9 +1068,15 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
           ifFalse: [[testInstance runCase]]].
     [[[[[runBlock value]
       on: TestFailure do: [:ex |
-        result := #fail.
-        s nextPutAll: ''  FAIL: ''; nextPutAll: sel;
-          nextPutAll: '' [''; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: '']''; lf]]
+        expected
+          ifTrue: [
+            result := #xfail.
+            s nextPutAll: ''  XFAIL: ''; nextPutAll: sel;
+              nextPutAll: '' [''; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: '']''; lf]
+          ifFalse: [
+            result := #fail.
+            s nextPutAll: ''  FAIL: ''; nextPutAll: sel;
+              nextPutAll: '' [''; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 500)); nextPutAll: '']''; lf]]]
       on: Deprecation do: [:ex |
         [ex shouldTransform ifTrue: [ex transform]] on: Error do: [:e | ].
         ex resume]]
@@ -1046,8 +1085,8 @@ SUnitRunner class compile: 'runSingleTest: testClass selector: sel timeout: seco
         s nextPutAll: ''  SKIP: ''; nextPutAll: sel;
           nextPutAll: '' (''; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 100)); nextPutAll: '')''; lf]]
       on: Error do: [:ex |
-        result := #error.
-        s nextPutAll: ''  ERROR: ''; nextPutAll: sel;
+        result := expected ifTrue: [#xfail] ifFalse: [#error].
+        s nextPutAll: (expected ifTrue: [''  XFAIL: ''] ifFalse: [''  ERROR: '']); nextPutAll: sel;
           nextPutAll: '' (''; nextPutAll: ex class name;
           nextPutAll: '': ''; nextPutAll: (ex messageText copyFrom: 1 to: (ex messageText size min: 100)); nextPutAll: '')''; lf.
         "Capture stack trace for diagnosis"
@@ -1256,7 +1295,7 @@ SUnitRunner class compile: 'startUp: resuming
   resuming ifFalse: [^ self].
   "Guard against auto-restart: if a previous run completed, don''t re-run on
    image resume. The run writes a marker file on completion."
-  (''/tmp/sunit_run_completed.txt'' asFileReference exists) ifTrue: [
+  ((SUnitRunner tmpPath: ''run_completed.txt'') asFileReference exists) ifTrue: [
     Transcript show: ''SUnitRunner: previous run completed, skipping auto-restart''; cr.
     ^ self].
   "Suspend the saved WorldMorph render loop FIRST, before any other startup

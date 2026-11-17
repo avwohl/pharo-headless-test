@@ -30,7 +30,15 @@
  next batch skip itself entirely.  Set SUNIT_PREFIX=/tmp/cogsunit (say) and
  the two can run side by side."
 
-| prefix classFile classNames stream detail totalP totalF totalE totalS totalT totalClasses perTestTimeout |
+| prefix classFile classNames stream detail totalP totalF totalE totalS totalT totalX totalClasses perTestTimeout |
+"Same session state as run_sunit_tests.st (SUnitRunner class>>startUp:), so
+ the two VMs run the tests in the same conditions: the Morphic UI manager and
+ the fake-GUI World cycle when the image has them, and the pharo.version file
+ that ReleaseTest>>testPharoVersionFileExists reads."
+[ (UIManager default class == MorphicUIManager) ifFalse: [ MorphicUIManager new beDefault ] ] on: Error do: [ :e | ].
+[ (Smalltalk globals at: #FakeGUI ifAbsent: [ nil ]) ifNotNil: [ :fg | fg perform: #startCycleLoop ] ] on: Error do: [ :e | ].
+[ | vf | vf := FileLocator imageDirectory / 'pharo.version'.
+  vf exists ifFalse: [ vf writeStreamDo: [ :o | o nextPutAll: (SystemVersion current major * 10) printString ] ] ] on: Error do: [ :e | ].
 prefix := (Smalltalk os environment at: 'SUNIT_PREFIX' ifAbsent: [ nil ])
   ifNil: [ '/tmp/sunit' ]
   ifNotNil: [ :v | v trimBoth isEmpty ifTrue: [ '/tmp/sunit' ] ifFalse: [ v trimBoth ] ].
@@ -40,7 +48,7 @@ classNames := (classFile contents lines collect: [:s | s trimBoth])
 
 stream := (prefix , '_test_results.txt') asFileReference writeStream.
 detail := (prefix , '_test_detail.txt') asFileReference writeStream.
-totalP := 0. totalF := 0. totalE := 0. totalS := 0. totalT := 0.
+totalP := 0. totalF := 0. totalE := 0. totalS := 0. totalT := 0. totalX := 0.
 totalClasses := 0.
 perTestTimeout := 50 seconds.
 
@@ -62,19 +70,49 @@ classNames do: [:className |
     stream nextPut: Character lf.
     stream flush
   ] ifFalse: [
-    | selectors cp cf ce cs ct |
-    cp := 0. cf := 0. ce := 0. cs := 0. ct := 0.
+  ([ klass isAbstract ] on: Error do: [ :ex | false ]) ifTrue: [
+    "run_sunit_tests.st does not run an abstract class; do the same."
+    stream nextPutAll: '=== '; nextPutAll: className; nextPutAll: ' === SKIPPED (abstract)'; nextPut: Character lf.
+    stream flush
+  ] ifFalse: [
+    | selectors cp cf ce cs ct cx |
+    cp := 0. cf := 0. ce := 0. cs := 0. ct := 0. cx := 0.
     selectors := klass allTestSelectors.
     stream nextPutAll: '=== '; nextPutAll: className; nextPutAll: ' ==='; nextPut: Character lf.
     selectors do: [:sel |
-      | instance result failText errText skipText |
+      | instance result failText errText skipText expected |
       instance := klass selector: sel.
-      stream nextPutAll: '  RUN: '; nextPutAll: sel; nextPut: Character lf.
+      "A test that is marked as an expected failure runs.  It fails or errors:
+       XFAIL.  It passes: an unexpected pass, which SUnit reports as a failure."
+      expected := ([ (klass lookupSelector: sel) pragmas anySatisfy: [ :pr | pr selector = #expectedFailure ] ]
+        on: Error do: [ :ex | false ])
+          or: [ [ instance shouldPass not ] on: Error do: [ :ex | false ] ].
+      stream nextPutAll: '  RUN: '; nextPutAll: sel.
+      expected ifTrue: [ stream nextPutAll: ' (expectedFailure)' ].
+      stream nextPut: Character lf.
       stream flush.
       result := nil. failText := nil. errText := nil. skipText := nil.
       [[[
-        result := [instance runCase. #pass]
-          valueWithin: perTestTimeout onTimeout: [#timeout]]
+        "runCaseManaged, not runCase: the test runs inside a
+         TestExecutionEnvironment, as it does under TestCase>>run.  With a bare
+         runCase, ProcessTest and SUnitTest gave 50 errors that were not defects
+         (DefaultExecutionEnvironment does not understand processMonitor)."
+        result := (className = 'ReleaseTest' and: [ sel = #testUnknownProcesses ])
+          ifTrue: [
+            "This test lists every process of the image.  Run it with no
+             helper process of the harness alive: no fake-GUI cycle loop and
+             no valueWithin: watchdog (run_sunit_tests.st does the same in
+             SUnitRunner class>>withoutHelperProcessesDo:)."
+            | cycle |
+            cycle := Smalltalk globals at: #FakeGUICycleLoop ifAbsent: [ nil ].
+            cycle ifNotNil: [ :p | [ p terminate ] on: Error do: [ :e | ] ].
+            [ instance runCaseManaged. #pass ] ensure: [
+              cycle ifNotNil: [ :p |
+                (Smalltalk globals at: #FakeGUI ifAbsent: [ nil ]) ifNotNil: [ :fg |
+                  [ fg perform: #startCycleLoop ] on: Error do: [ :e | ] ] ] ] ]
+          ifFalse: [
+            [instance runCaseManaged. #pass]
+              valueWithin: perTestTimeout onTimeout: [#timeout] ]]
           on: TestFailure do: [:ex |
             failText := ex messageText ifNil: [''].
             result := #fail]]
@@ -84,6 +122,20 @@ classNames do: [:className |
           on: Error do: [:ex |
             errText := ex class name , ': ' , (ex messageText ifNil: ['']).
             result := #error].
+      (expected and: [ result = #pass ]) ifTrue: [
+        result := #fail.
+        failText := 'unexpected pass: the test is marked as an expected failure and it passes' ].
+      (expected and: [ result = #fail and: [ (failText beginsWith: 'unexpected pass') not ] ]) ifTrue: [
+        result := #xfail.
+        stream nextPutAll: '  XFAIL: '; nextPutAll: sel;
+          nextPutAll: ' ['; nextPutAll: (failText copyFrom: 1 to: (failText size min: 500));
+          nextPutAll: ']'; nextPut: Character lf ].
+      (expected and: [ result = #error ]) ifTrue: [
+        result := #xfail.
+        stream nextPutAll: '  XFAIL: '; nextPutAll: sel;
+          nextPutAll: ' ('; nextPutAll: (errText copyFrom: 1 to: (errText size min: 500));
+          nextPutAll: ')'; nextPut: Character lf ].
+      result = #xfail ifTrue: [cx := cx + 1].
       result = #pass ifTrue: [cp := cp + 1].
       result = #fail ifTrue: [
         cf := cf + 1.
@@ -106,18 +158,19 @@ classNames do: [:className |
           nextPutAll: ' (exceeded '; print: perTestTimeout asSeconds;
           nextPutAll: 's)'; nextPut: Character lf].
       stream flush].
-    stream nextPutAll: 'Total: '; print: cp + cf + ce + cs + ct;
+    stream nextPutAll: 'Total: '; print: cp + cf + ce + cs + ct + cx;
       nextPutAll: ' P:'; print: cp;
       nextPutAll: ' F:'; print: cf;
       nextPutAll: ' E:'; print: ce;
       nextPutAll: ' S:'; print: cs.
     ct > 0 ifTrue: [stream nextPutAll: ' T:'; print: ct].
+    cx > 0 ifTrue: [stream nextPutAll: ' X:'; print: cx].
     stream nextPut: Character lf.
     stream nextPut: Character lf.
     stream flush.
     totalP := totalP + cp. totalF := totalF + cf. totalE := totalE + ce.
-    totalS := totalS + cs. totalT := totalT + ct.
-    totalClasses := totalClasses + 1]].
+    totalS := totalS + cs. totalT := totalT + ct. totalX := totalX + cx.
+    totalClasses := totalClasses + 1]]].
 
 stream nextPut: Character lf.
 stream nextPutAll: '=== BATCH TOTAL ==='; nextPut: Character lf.
@@ -127,7 +180,8 @@ stream nextPutAll: 'Fail: '; print: totalF; nextPut: Character lf.
 stream nextPutAll: 'Error: '; print: totalE; nextPut: Character lf.
 stream nextPutAll: 'Skip: '; print: totalS; nextPut: Character lf.
 totalT > 0 ifTrue: [stream nextPutAll: 'Timeout: '; print: totalT; nextPut: Character lf].
-stream nextPutAll: 'Total: '; print: totalP + totalF + totalE + totalS + totalT; nextPut: Character lf.
+totalX > 0 ifTrue: [stream nextPutAll: 'ExpectedFailure: '; print: totalX; nextPut: Character lf].
+stream nextPutAll: 'Total: '; print: totalP + totalF + totalE + totalS + totalT + totalX; nextPut: Character lf.
 stream nextPutAll: 'Finished: '; nextPutAll: DateAndTime now printString; nextPut: Character lf.
 stream nextPut: Character lf.
 stream nextPutAll: '=== BATCH COMPLETE ==='; nextPut: Character lf.
